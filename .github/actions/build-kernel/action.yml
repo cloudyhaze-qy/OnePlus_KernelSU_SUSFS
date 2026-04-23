@@ -961,6 +961,15 @@ runs:
                   echo "::warning::No fix_$file.patch in kernel_patches; skipping (hunk may be lost for $file)"
                 fi
               done
+              # Force-apply fix_init.c.patch for KSU v3.2.0_33129 (upstream KSU bug:
+              # init.c calls ksu_sucompat_init/ksu_setuid_hook_init which were merged
+              # into ksu_syscall_hook_init). This must run even when SUSFS produced
+              # no .rej for init.c.
+              INIT_FIX="$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_init.c.patch"
+              if [ -f "$INIT_FIX" ]; then
+                echo "Force-applying fix_init.c.patch (KSU v3.2.0 init.c bug)"
+                patch -p1 --forward --fuzz=3 < "$INIT_FIX" || echo "::warning::fix_init.c.patch already applied or did not match"
+              fi
               echo "Patching Hook Mode!"
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
               echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
