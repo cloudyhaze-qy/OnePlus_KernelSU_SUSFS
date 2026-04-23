@@ -23,7 +23,6 @@ jobs:
             gh release create "toolchain-cache" \
               --title "Toolchains Mirror Cache" \
               --notes "Deduplicated Toolchains" \
-              --draft \
               --repo "$TARGET_REPO"
           else
             echo "Release 'toolchain-cache' already exists. Skipping creation."
