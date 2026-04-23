@@ -922,6 +922,38 @@ runs:
           echo "NEED_HOOKS=false" >> $GITHUB_ENV
         fi
 
+        validate_main_susfs_patch() {
+          local target_root="$1"
+          shift
+          local patch_file="$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          local check_output=""
+
+          if ! check_output=$(cd "$target_root" && patch "$@" --dry-run < "$patch_file" 2>&1); then
+            echo "::error::Resolved SUSFS patch is incompatible with the current $(basename "$target_root") tree"
+            echo "::error::SUSFS commit: ${SUSFS_COMMIT_SHA:-unknown}"
+            echo "::error::KernelSU commit: ${KSU_COMMIT_SHA:-unknown}"
+            if [ "${ANDROID_VER:-}" = "android12" ] && [ "${KERNEL_VER:-}" = "5.10" ] && [ "${KSUVER:-}" = "33095" ]; then
+              echo "::error::For the r1 / KSUN 33095 build, pin android12-5_10_susfs_branch_or_commit to 6b92a79fa6476f36aae81c6ec284a5cd4391d0d9"
+            fi
+            echo "$check_output"
+            return 1
+          fi
+        }
+
+        apply_main_susfs_patch() {
+          local target_root="$1"
+          shift
+          local patch_file="$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          local apply_output=""
+
+          validate_main_susfs_patch "$target_root" "$@"
+          if ! apply_output=$(cd "$target_root" && patch "$@" < "$patch_file" 2>&1); then
+            echo "::error::Failed while applying the required SUSFS KernelSU patch"
+            echo "$apply_output"
+            return 1
+          fi
+        }
+
           apply_optional_patch() {
             local patch_file="$1"
             local description="$2"
@@ -943,20 +975,19 @@ runs:
         case "$susfs_version" in
           "v1.5.8")
             if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              apply_main_susfs_patch "$KSUN_FOLDER" -p1 --forward --fuzz=3
                 apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch" "Patching apk_sign.c" -p1 --forward --fuzz=3
                 apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_core_hook.c.patch" "Patching core_hook.c" -p1 --forward --fuzz=3
                 apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_selinux.c.patch" "Patching selinux.c" -p1 --forward --fuzz=3
                 apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch" "Patching ksud.c" -p1 --forward --fuzz=3
             else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+              apply_main_susfs_patch "$KSU_FOLDER" -p1 --forward --fuzz=3
             fi
             ;;
           "v1.5.9"|"v1.5.10"|"v1.5.11"|"v1.5.12")
             if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
               cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              apply_main_susfs_patch "$KSUN_FOLDER" -p1 --forward
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" | cut -d'.' -f1); do
                 FIX_PATCH="$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch"
 
@@ -964,14 +995,13 @@ runs:
               done
               apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch" "Patching kernel_compat.c" -p1 --forward
             else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+              apply_main_susfs_patch "$KSU_FOLDER" -p1 --forward
             fi
             ;;
           "v2.0.0")
             if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
               cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              apply_main_susfs_patch "$KSUN_FOLDER" -p1 --forward
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
                 FIX_PATCH="$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
 
@@ -984,14 +1014,13 @@ runs:
                 apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch" "Patching Multi-manager sepolicy Support for SusFS kernel!" -p1 --forward
               fi
             else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              apply_main_susfs_patch "$KSU_FOLDER" -p1 --forward
             fi
             ;;
           "v2.1.0")
             if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
               cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              apply_main_susfs_patch "$KSUN_FOLDER" -p1 --forward
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
                 FIX_PATCH="$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
 
@@ -1004,8 +1033,7 @@ runs:
                 apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch" "Patching Multi-manager sepolicy Support for SusFS kernel!" -p1 --forward
               fi
             else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+              apply_main_susfs_patch "$KSU_FOLDER" -p1 --forward
             fi
             ;;
           *)
