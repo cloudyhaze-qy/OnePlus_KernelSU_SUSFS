@@ -1056,6 +1056,23 @@ runs:
         fi
         echo "✅ SUSFS patches applied"
         
+        echo "::group::Apply custom hooks"
+        if [ -d "$GITHUB_WORKSPACE/custom_patches" ]; then
+          cd "$COMMON_KERNEL_FOLDER"
+          for p in "$GITHUB_WORKSPACE"/custom_patches/*.patch; do
+            [ -f "$p" ] || continue
+            echo ">>> applying $(basename "$p")"
+            patch -p1 --forward --fuzz=5 < "$p" || {
+              echo "::error::custom patch $(basename "$p") failed"; exit 1;
+            }
+          done
+          cd - >/dev/null
+        else
+          echo "no custom_patches/ directory; skipping"
+        fi
+        echo "::endgroup::"
+        echo "✅ Custom hooks applied"
+
         echo "Add SUSFS Configuration Settings"
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_KSU_SUSFS=y
