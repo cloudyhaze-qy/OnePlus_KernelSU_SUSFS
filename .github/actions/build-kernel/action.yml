@@ -970,6 +970,18 @@ runs:
                 echo "Force-applying fix_init.c.patch (KSU v3.2.0 init.c bug)"
                 patch -p1 --forward --fuzz=3 < "$INIT_FIX" || echo "::warning::fix_init.c.patch already applied or did not match"
               fi
+              # Fallback: if the bad calls are still in init.c (patch did not apply),
+              # strip them via sed. ksu_syscall_hook_init() replaces both functions.
+              INIT_C="$KSUN_FOLDER/kernel/core/init.c"
+              if [ -f "$INIT_C" ] && grep -q 'ksu_sucompat_init\|ksu_setuid_hook_init' "$INIT_C"; then
+                echo "::warning::Removing stale ksu_sucompat_init/ksu_setuid_hook_init calls via sed"
+                sed -i -e '/ksu_sucompat_init();/d' -e '/ksu_setuid_hook_init();/d' "$INIT_C"
+                grep -q 'ksu_syscall_hook_init();' "$INIT_C" || {
+                  echo "::error::ksu_syscall_hook_init() call missing after stripping"
+                  exit 1
+                }
+                echo "Stripped. init.c now depends only on ksu_syscall_hook_init()."
+              fi
               echo "Patching Hook Mode!"
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
               echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
