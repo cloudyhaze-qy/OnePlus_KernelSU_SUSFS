@@ -239,7 +239,7 @@ runs:
           echo "::error::Input validation failed. See logs for details."
           exit 1
         else
-          echo "âœ?Input validation passed"
+          echo "ï¿½?Input validation passed"
         fi
         echo "::endgroup::"
 
@@ -318,7 +318,7 @@ runs:
           sleep 30
         done
         $success || { echo "::error::repo sync failed after 3 attempts"; exit 1; }
-        echo "âœ?Kernel source synced"
+        echo "ï¿½?Kernel source synced"
         echo "::endgroup::"
 
     - name: Set Dir Paths
@@ -396,13 +396,13 @@ runs:
           fi
         } >> "$GITHUB_ENV"
         
-        echo "âœ?Detected: $ANDROID_VERSION-$FULL_VERSION"
+        echo "ï¿½?Detected: $ANDROID_VERSION-$FULL_VERSION"
         if [ "${{ env.OP_SUSFS }}" = true ]; then
           echo "   SUSFS Branch: gki-$ANDROID_VERSION-$VERSION.$PATCHLEVEL"
         fi
         echo "::endgroup::"
 
-    - name: ðŸ·ï¸?Set Build Identity (Hardcoded)
+    - name: ðŸ·ï¿½?Set Build Identity (Hardcoded)
       shell: bash
       run: |
         set -euo pipefail
@@ -415,7 +415,7 @@ runs:
         echo "BUILD_HOST=$BUILD_HOST" >> "$GITHUB_ENV"
         
         echo ""
-        echo "âœ?Build identity configured:"
+        echo "ï¿½?Build identity configured:"
         echo "   User: $BUILD_USER"
         echo "   Host: $BUILD_HOST"
         echo "::endgroup::"
@@ -530,12 +530,12 @@ runs:
           short="$("${CLANG_BIN}/clang" --version | sha256sum | cut -c1-8)"
           echo "âš ï¸ Could not extract clang-r version, using hash: $short"
         else
-          echo "âœ?Clang version fingerprint: $short"
+          echo "ï¿½?Clang version fingerprint: $short"
         fi
         
         echo "CLANG_VERSION_SHORT=$short" >> "$GITHUB_ENV"
         
-        echo "âœ?Detected Clang: $CLANG_VERSION"
+        echo "ï¿½?Detected Clang: $CLANG_VERSION"
         echo "::endgroup::"
 
     - name: Check or Detect Rust
@@ -568,7 +568,7 @@ runs:
         echo "RUSTC_BIN_PATH=$RUSTC_BIN" >> "$GITHUB_ENV"
         RUSTC_VERSION="$("$RUSTC_BIN/rustc" --version | head -n1)"
         echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-        echo "âœ?Detected RUSTC: $RUSTC_VERSION"
+        echo "ï¿½?Detected RUSTC: $RUSTC_VERSION"
         
         echo "::endgroup::"
 
@@ -641,7 +641,7 @@ runs:
           echo "CCACHE_IGNOREOPTIONS=$CCACHE_IGNOREOPTIONS"
         } >> "$GITHUB_ENV"
         
-        echo "âœ?ccache configured for production"
+        echo "ï¿½?ccache configured for production"
         echo ""
         echo "Configuration applied:"
         echo "  Max size: 12G (persisted)"
@@ -653,7 +653,7 @@ runs:
         echo ""
         
         if [ -d "$CCACHE_DIR" ] && find "$CCACHE_DIR" -type f -print -quit 2>/dev/null | grep -q .; then
-          echo "âœ?Restored cache found"
+          echo "ï¿½?Restored cache found"
           echo ""
           echo "Pre-build cache statistics:"
           ccache -s | head -n 20
@@ -674,7 +674,7 @@ runs:
         
         echo "CCACHE_DISABLE=1" >> "$GITHUB_ENV"
         
-        echo "âœ?ccache disabled for clean build (no cache/stat wipe)"
+        echo "ï¿½?ccache disabled for clean build (no cache/stat wipe)"
         echo "   Shared cache and statistics preserved for concurrent jobs"
         echo "::endgroup::"
 
@@ -738,11 +738,11 @@ runs:
             
             # Clone with dynamic args
             git clone "${clone_args[@]}" "$url" "$dir" && {
-              echo "âœ?Success"
+              echo "ï¿½?Success"
               return 0
             }
             
-            echo "â?Failed, cleaning up..."
+            echo "ï¿½?Failed, cleaning up..."
             rm -rf "$dir" 2>/dev/null
             sleep $((attempt++ * 5))
           done
@@ -762,11 +762,11 @@ runs:
           # Try to checkout the specified branch/commit
           if git rev-parse --verify "origin/$SUSFS_BRANCH" >/dev/null 2>&1; then
             # It's a remote branch
-            echo "âœ?Checking out remote branch: $SUSFS_BRANCH"
+            echo "ï¿½?Checking out remote branch: $SUSFS_BRANCH"
             git checkout "$SUSFS_BRANCH"
           elif git rev-parse --verify "$SUSFS_BRANCH" >/dev/null 2>&1; then
             # It's a local ref or commit hash
-            echo "âœ?Checking out ref/commit: $SUSFS_BRANCH"
+            echo "ï¿½?Checking out ref/commit: $SUSFS_BRANCH"
             git checkout "$SUSFS_BRANCH"
           else
             echo "::error::SUSFS branch or commit '$SUSFS_BRANCH' not found in repository"
@@ -783,12 +783,12 @@ runs:
           echo "SUSFS_BRANCH_NAME=$SUSFS_BRANCH_NAME" >> $GITHUB_ENV
           
           echo ""
-          echo "âœ?SUSFS checked out successfully"
+          echo "ï¿½?SUSFS checked out successfully"
           echo "   Branch/Ref: $SUSFS_BRANCH_NAME"
           echo "   Commit: $SUSFS_COMMIT_SHA"
         fi
         cd ..
-        echo "âœ?Dependencies cloned"
+        echo "ï¿½?Dependencies cloned"
         echo "::endgroup::"
 
     - name: Clean Up ABI Protected Exports
@@ -852,7 +852,7 @@ runs:
         echo "$KSU_VERSION" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
         echo "KernelSU Next Version: $KSU_VERSION"
-        echo "âœ?KernelSU Next added (commit: ${KSU_COMMIT_SHA:0:8})"
+        echo "ï¿½?KernelSU Next added (commit: ${KSU_COMMIT_SHA:0:8})"
         echo "::endgroup::"
 
     - name: Add KernelSU
@@ -892,7 +892,7 @@ runs:
         echo "$KSU_VERSION" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
         echo "KernelSU Version: $KSU_VERSION"
-        echo "âœ?KernelSU added (commit: ${KSU_COMMIT_SHA:0:8})"
+        echo "ï¿½?KernelSU added (commit: ${KSU_COMMIT_SHA:0:8})"
         echo "::endgroup::"
 
     - name: Apply SUSFS Patches
@@ -921,15 +921,33 @@ runs:
         else
           echo "NEED_HOOKS=false" >> $GITHUB_ENV
         fi
+
+          apply_optional_patch() {
+            local patch_file="$1"
+            local description="$2"
+            shift 2
+
+            if [ ! -f "$patch_file" ]; then
+              echo "::warning::Missing $(basename "$patch_file") in kernel_patches; skipping"
+              return 0
+            fi
+
+            if patch "$@" --dry-run < "$patch_file" >/dev/null 2>&1; then
+              echo "$description"
+              patch "$@" < "$patch_file"
+            else
+              echo "::warning::Incompatible $(basename "$patch_file") for current KernelSU tree; skipping"
+            fi
+          }
         
         case "$susfs_version" in
           "v1.5.8")
             if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
               patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch"
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_core_hook.c.patch"
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_selinux.c.patch"
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch"
+                apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch" "Patching apk_sign.c" -p1 --forward --fuzz=3
+                apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_core_hook.c.patch" "Patching core_hook.c" -p1 --forward --fuzz=3
+                apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_selinux.c.patch" "Patching selinux.c" -p1 --forward --fuzz=3
+                apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch" "Patching ksud.c" -p1 --forward --fuzz=3
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -942,18 +960,9 @@ runs:
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" | cut -d'.' -f1); do
                 FIX_PATCH="$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch"
 
-                if [ -f "$FIX_PATCH" ]; then
-
-                  echo "Patching file: $file.c with fix_$file.c.patch"
-                  patch -p1 --forward < "$FIX_PATCH"
-
-                else
-
-                  echo "::warning::Missing fix_$file.c.patch in kernel_patches; skipping"
-
-                fi
+                apply_optional_patch "$FIX_PATCH" "Patching file: $file.c with fix_$file.c.patch" -p1 --forward
               done
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
+              apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch" "Patching kernel_compat.c" -p1 --forward
             else
               cd "$KSU_FOLDER"
               patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
@@ -966,26 +975,13 @@ runs:
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
                 FIX_PATCH="$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
 
-                if [ -f "$FIX_PATCH" ]; then
-
-                  echo "Patching file: $file with fix_$file.patch"
-                  patch -p1 --forward < "$FIX_PATCH"
-
-                else
-
-                  echo "::warning::Missing fix_$file.patch in kernel_patches; skipping"
-
-                fi
+                apply_optional_patch "$FIX_PATCH" "Patching file: $file with fix_$file.patch" -p1 --forward
               done
-              echo "Patching Hook Mode!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
-              echo "Patching Multi-manager Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch"
+              apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch" "Patching Hook Mode!" -p1 --forward
+              apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch" "Patching KSU_TOOLKIT Support for SusFS kernel!" -p1 --forward
+              apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch" "Patching Multi-manager Support for SusFS kernel!" -p1 --forward
               if [ "$KSUVER" -ge 33068 ] && [ "$KSUVER" -lt 33070 ]; then
-                echo "Patching Multi-manager sepolicy Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch"
+                apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch" "Patching Multi-manager sepolicy Support for SusFS kernel!" -p1 --forward
               fi
             else
               cd "$KSU_FOLDER"
@@ -999,26 +995,13 @@ runs:
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
                 FIX_PATCH="$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
 
-                if [ -f "$FIX_PATCH" ]; then
-
-                  echo "Patching file: $file with fix_$file.patch"
-                  patch -p1 --forward < "$FIX_PATCH"
-
-                else
-
-                  echo "::warning::Missing fix_$file.patch in kernel_patches; skipping"
-
-                fi
+                apply_optional_patch "$FIX_PATCH" "Patching file: $file with fix_$file.patch" -p1 --forward
               done
-              echo "Patching Hook Mode!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
-              echo "Patching Multi-manager Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch"
+              apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch" "Patching Hook Mode!" -p1 --forward
+              apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch" "Patching KSU_TOOLKIT Support for SusFS kernel!" -p1 --forward
+              apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch" "Patching Multi-manager Support for SusFS kernel!" -p1 --forward
               if [ "$KSUVER" -ge 33068 ] && [ "$KSUVER" -lt 33070 ]; then
-                echo "Patching Multi-manager sepolicy Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch"
+                apply_optional_patch "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch" "Patching Multi-manager sepolicy Support for SusFS kernel!" -p1 --forward
               fi
             else
               cd "$KSU_FOLDER"
@@ -1106,7 +1089,7 @@ runs:
             fi
           fi
         fi
-        echo "âœ?SUSFS patches applied"
+        echo "ï¿½?SUSFS patches applied"
         
         echo "Add SUSFS Configuration Settings"
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
@@ -1158,7 +1141,7 @@ runs:
         
         # echo "Patching BBG Enhanced Security!"
         # patch -p1 --forward < "../../../kernel_patches/common/bbg_untrusted_cred.patch"
-        echo "âœ?BBG LSM added"
+        echo "ï¿½?BBG LSM added"
         echo "::endgroup::"
 
     - name: Apply KSU Hooks
@@ -1169,7 +1152,7 @@ runs:
         echo "::group::Apply KSU hooks"
         cd "$COMMON_KERNEL_FOLDER"
         patch -p1 < "$KERNEL_PATCHES_FOLDER/next/scope_min_manual_hooks_v1.4.patch"
-        echo "âœ?KSU hooks applied"
+        echo "ï¿½?KSU hooks applied"
         echo "::endgroup::"
 
     - name: Apply Other Patches
@@ -1253,7 +1236,7 @@ runs:
         patch -p1 -F3 --forward < "$KERNEL_PATCHES_FOLDER/common/use_unlikely_wrap_cpufreq.patch"
         
         
-        echo "âœ?Other patches applied"
+        echo "ï¿½?Other patches applied"
         echo "::endgroup::"
 
     - name: Apply Unicode Fix Patch
@@ -1452,7 +1435,7 @@ runs:
         echo "ðŸ“… Build timestamp: $KBUILD_BUILD_TIMESTAMP (from commit $COMMIT_HASH)"
         echo "ðŸ”¢ SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
         echo "ðŸ‘¤ Build user: $KBUILD_BUILD_USER"
-        echo "ðŸ–¥ï¸? Build host: $KBUILD_BUILD_HOST"
+        echo "ðŸ–¥ï¿½? Build host: $KBUILD_BUILD_HOST"
         
         export CC="ccache clang"
         export CXX="ccache clang++"
@@ -1618,7 +1601,7 @@ runs:
         IMG_SIZE=$(stat -c%s "$IMG")
         
         echo "============================================"
-        echo "âœ?Build Completed Successfully"
+        echo "ï¿½?Build Completed Successfully"
         echo "============================================"
         echo "Duration: $((BUILD_TIME / 60))m $((BUILD_TIME % 60))s"
         echo "Image: $(numfmt --to=iec-i --suffix=B "$IMG_SIZE")"
@@ -1732,7 +1715,7 @@ runs:
         printf 'image_sha256=%s\n' "$IMG_SHA256" >> "$GITHUB_OUTPUT"
         printf 'build_time=%s\n' "$BUILD_TIME" >> "$GITHUB_OUTPUT"
         
-        echo "âœ?Validation passed:"
+        echo "ï¿½?Validation passed:"
         echo "   - Warnings: $WARNINGS_COUNT"
         echo "   - Image size: $(numfmt --to=iec-i --suffix=B "$IMG_SIZE")"
         echo "   - SHA256: $IMG_SHA256"
@@ -1791,7 +1774,7 @@ runs:
         echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
         
         echo ""
-        echo "âœ?Kernel ZIP created successfully"
+        echo "ï¿½?Kernel ZIP created successfully"
         echo "   Name: $ZIP_NAME"
         echo "   Size: $(numfmt --to=iec-i --suffix=B "$ZIP_SIZE")"
         echo "   SHA256: $ZIP_SHA256"
