@@ -49,7 +49,7 @@ runs:
         
         MAX_WORKERS = (os.cpu_count() or 2) * 4
         NPROC = int(subprocess.check_output("nproc", shell=True).strip())
-        TARGET_REPO = "${{ github.repository }}"
+        TARGET_REPO = "WildKernels/OnePlus_KernelSU_SUSFS"
         TOOLCHAIN_MAP = {
             "clang/host/linux-x86": "clang",
             "prebuilts/rust": "rust",
