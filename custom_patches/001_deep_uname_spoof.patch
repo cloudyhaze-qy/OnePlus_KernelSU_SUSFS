@@ -1,13 +1,14 @@
 From: ACE counter-hardening
 Subject: [PATCH] susfs: deep spoof uname into init_uts_ns
 
-Also overwrite init_uts_ns so that /proc/version,
-/proc/sys/kernel/osrelease and /proc/sys/kernel/version
-reflect the spoofed values for any reader (not only sys_newuname).
+SUSFS only overrides sys_newuname via its internal my_uname struct,
+but leaves init_uts_ns raw. This lets userspace leak the real kernel
+build banner via /proc/version, /proc/sys/kernel/osrelease and
+/proc/sys/kernel/version (which all read init_uts_ns directly).
 
-This plugs a gap where SUSFS only hooked sys_newuname but left
-init_uts_ns raw, letting userspace read the real kernel build
-banner via /proc/version etc.
+Honor of Kings ACE / libtersafe cross-checks uname() vs /proc/version
+and flags any mismatch, so we overwrite init_uts_ns too whenever a
+non-"default" spoof value is configured.
 
 --- a/fs/susfs.c
 +++ b/fs/susfs.c
@@ -19,15 +20,6 @@ banner via /proc/version etc.
  #include <linux/susfs.h>
  #include "mount.h"
  
-@@ -430,7 +431,7 @@ int susfs_set_uname(struct st_susfs_uname* __user user_info) {
- 		SUSFS_LOGE("failed copying from userspace.\n");
- 		return 1;
- 	}
--
-+
- 	spin_lock(&susfs_spin_lock);
- 	strncpy(my_uname.sysname, info.sysname, __NEW_UTS_LEN);
- 	strncpy(my_uname.nodename, info.nodename, __NEW_UTS_LEN);
 @@ -440,6 +441,30 @@ int susfs_set_uname(struct st_susfs_uname* __user user_info) {
  	SUSFS_LOGI("setting sysname: '%s', nodename: '%s', release: '%s', version: '%s', machine: '%s'\n",
  				my_uname.sysname, my_uname.nodename, my_uname.release, my_uname.version, my_uname.machine);

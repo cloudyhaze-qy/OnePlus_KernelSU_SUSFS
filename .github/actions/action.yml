@@ -1136,6 +1136,32 @@ runs:
             fi
           fi
         fi
+
+        # === Custom patches on top of SUSFS ===
+        # Applied from my_fork/custom_patches/. Fail-fast: any patch listed here
+        # MUST apply cleanly against the freshly-landed SUSFS tree.
+        CUSTOM_PATCHES_DIR="$GITHUB_WORKSPACE/custom_patches"
+        if [ -d "$CUSTOM_PATCHES_DIR" ]; then
+          echo "Scanning $CUSTOM_PATCHES_DIR for custom patches..."
+          # Use a sorted list so ordering is deterministic (001_, 002_, ...).
+          while IFS= read -r -d '' cp_file; do
+            cp_name="$(basename "$cp_file")"
+            echo "Applying custom patch: $cp_name"
+            if ! patch -p1 --forward --fuzz=3 --dry-run < "$cp_file" >/tmp/cp_dry.log 2>&1; then
+              echo "::error::Custom patch $cp_name does NOT apply against the current SUSFS tree"
+              cat /tmp/cp_dry.log
+              exit 1
+            fi
+            if ! patch -p1 --forward --fuzz=3 < "$cp_file"; then
+              echo "::error::Custom patch $cp_name failed to apply (post dry-run)"
+              exit 1
+            fi
+            echo "Custom patch $cp_name applied"
+          done < <(find "$CUSTOM_PATCHES_DIR" -maxdepth 1 -type f -name '*.patch' -print0 | sort -z)
+        else
+          echo "No $CUSTOM_PATCHES_DIR directory found, skipping custom patches"
+        fi
+
         echo "�?SUSFS patches applied"
         
         echo "Add SUSFS Configuration Settings"
