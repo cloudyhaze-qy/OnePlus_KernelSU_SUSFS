@@ -12,11 +12,12 @@ non-"default" spoof value is configured.
 
 --- a/fs/susfs.c
 +++ b/fs/susfs.c
-@@ -1,6 +1,7 @@
+@@ -1,6 +1,8 @@
  #include <linux/version.h>
  #include <linux/cred.h>
  #include <linux/module.h>
 +#include <linux/utsname.h>
++#include <linux/rwsem.h>
  #include <linux/susfs.h>
  #include "mount.h"
  

@@ -1147,12 +1147,12 @@ runs:
           while IFS= read -r -d '' cp_file; do
             cp_name="$(basename "$cp_file")"
             echo "Applying custom patch: $cp_name"
-            if ! patch -p1 --forward --fuzz=3 --dry-run < "$cp_file" >/tmp/cp_dry.log 2>&1; then
+            if ! patch -p1 --forward --dry-run < "$cp_file" >/tmp/cp_dry.log 2>&1; then
               echo "::error::Custom patch $cp_name does NOT apply against the current SUSFS tree"
               cat /tmp/cp_dry.log
               exit 1
             fi
-            if ! patch -p1 --forward --fuzz=3 < "$cp_file"; then
+            if ! patch -p1 --forward < "$cp_file"; then
               echo "::error::Custom patch $cp_name failed to apply (post dry-run)"
               exit 1
             fi
@@ -1652,8 +1652,35 @@ runs:
         
         BUILD_START=$(date +%s)
         set -o pipefail
-        
+
+        set +e
         make -j"$(nproc --all)" O="$OUT" KCFLAGS="$KCFLAGS" KCPPFLAGS="$KCPPFLAGS" 2>&1 | tee build.log
+        BUILD_EXIT=${PIPESTATUS[0]}
+        set -e
+
+        if [ "$BUILD_EXIT" -ne 0 ]; then
+          echo "::error::Kernel build failed during parallel compilation (exit $BUILD_EXIT)"
+
+          echo "::group::First compiler diagnostics"
+          if ! grep -nE 'error:|fatal error:|undefined reference|No rule to make target|No such file|ld\.lld: error:' build.log | head -n 60; then
+            echo "No direct compiler diagnostics matched; showing last 200 lines instead"
+          fi
+          echo "::endgroup::"
+
+          echo "::group::Tail of parallel build log"
+          tail -n 200 build.log || true
+          echo "::endgroup::"
+
+          echo "::group::Serial rebuild for first failing command"
+          set +e
+          make -j1 V=1 O="$OUT" KCFLAGS="$KCFLAGS" KCPPFLAGS="$KCPPFLAGS" 2>&1 | tee build-serial.log
+          SERIAL_EXIT=${PIPESTATUS[0]}
+          set -e
+          echo "Serial rebuild exit code: $SERIAL_EXIT"
+          echo "::endgroup::"
+
+          exit "$BUILD_EXIT"
+        fi
         
         BUILD_END=$(date +%s)
         BUILD_TIME=$((BUILD_END - BUILD_START))
