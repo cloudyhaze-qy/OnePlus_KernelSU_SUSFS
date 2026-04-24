@@ -1,0 +1,83 @@
+From: ACE counter-hardening
+Subject: [PATCH] kallsyms: hide sensitive symbols from app UIDs
+
+For /proc/kallsyms readers running as app UIDs, skip symbols that are
+commonly used by anti-root probes to fingerprint KernelSU/SUSFS style
+setups. Root/system readers are left unchanged.
+
+--- a/kernel/kallsyms.c
++++ b/kernel/kallsyms.c
+@@ -26,6 +26,7 @@
+ #include <linux/ftrace.h>
+ #include <linux/kprobes.h>
+ #include <linux/compiler.h>
++#include <linux/cred.h>
+ 
+ /*
+  * These will be re-linked against their real values
+@@ -497,6 +498,44 @@ struct kallsym_iter {
+ 	int show_value;
+ };
+ 
++static bool susfs_kallsyms_is_app_uid(const struct cred *cred)
++{
++	unsigned int uid;
++
++	if (!cred)
++		return false;
++
++	uid = from_kuid_munged(&init_user_ns, cred->uid);
++	return uid >= 10000;
++}
++
++static bool susfs_kallsyms_should_hide(const struct cred *cred,
++					     const char *name,
++					     const char *module_name)
++{
++	static const char * const denylist[] = {
++		"kernelsu",
++		"susfs",
++		"magisk",
++		"kprobe_",
++		"__kprobe",
++		"ksu_",
++	};
++	int i;
++
++	if (!susfs_kallsyms_is_app_uid(cred))
++		return false;
++
++	for (i = 0; i < ARRAY_SIZE(denylist); i++) {
++		if (name && strstr(name, denylist[i]))
++			return true;
++		if (module_name && module_name[0] && strstr(module_name, denylist[i]))
++			return true;
++	}
++
++	return false;
++}
++
+ int __weak arch_get_kallsym(unsigned int symnum, unsigned long *value,
+ 				    char *type, char *name)
+ {
+@@ -677,6 +714,7 @@ static int s_show(struct seq_file *m, void *p)
+ {
+ 	void *value;
+ 	struct kallsym_iter *iter = m->private;
++	const struct cred *cred;
+ 
+ 	/* Some debugging symbols have no name. Ignore them. */
+ 	if (!iter->name[0])
+@@ -684,6 +724,12 @@ static int s_show(struct seq_file *m, void *p)
+ 
+ 	value = iter->show_value ? (void *)iter->value : NULL;
+ 
++	cred = (m->file && m->file->f_cred) ? m->file->f_cred : current_cred();
++	if (susfs_kallsyms_should_hide(cred, iter->name,
++				      iter->module_name[0] ? iter->module_name : NULL))
++		return 0;
++
++
+ 	if (iter->module_name[0]) {
+ 		char type;
+ 

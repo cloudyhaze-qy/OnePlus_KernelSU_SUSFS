@@ -1,0 +1,82 @@
+From: ACE counter-hardening
+Subject: [PATCH] proc/maps: normalize anon labels for app UIDs
+
+For app UIDs, normalize a few high-signal labels in /proc/<pid>/maps:
+- hide [anon:*] names that leak linker allocation details
+- rewrite [vdso] to a file-like label so simplistic "ELF-in-anon" scanners
+  do not flag it as injected anonymous code
+
+This keeps root/system behavior unchanged.
+
+--- a/fs/proc/task_mmu.c
++++ b/fs/proc/task_mmu.c
+@@ -20,6 +20,7 @@
+ #include <linux/shmem_fs.h>
+ #include <linux/uaccess.h>
+ #include <linux/pkeys.h>
++#include <linux/cred.h>
+ 
+ #include <asm/elf.h>
+ #include <asm/tlb.h>
+@@ -318,6 +319,13 @@ show_vma_header_prefix(struct seq_file *m,
+ 	seq_putc(m, ' ');
+ }
+ 
++static bool susfs_maps_is_app_uid(void)
++{
++	unsigned int uid = from_kuid_munged(&init_user_ns, current_uid());
++
++	return uid >= 10000;
++}
++
+ static void
+ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+ {
+@@ -330,6 +338,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+ 	unsigned long start, end;
+ 	dev_t dev = 0;
+ 	const char *name = NULL;
++	bool hide_for_app = susfs_maps_is_app_uid();
+ 
+ 	if (file) {
+ 		struct inode *inode = file_inode(vma->vm_file);
+@@ -359,6 +368,9 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+ 
+ 	name = arch_vma_name(vma);
+ 	if (!name) {
++		if (hide_for_app && vma_get_anon_name(vma))
++			name = "/dev/ashmem";
++
+ 		if (!mm) {
+ 			name = "[vdso]";
+ 			goto done;
+@@ -377,16 +389,25 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+ 			goto done;
+ 		}
+ 
+-		if (vma_get_anon_name(vma)) {
+-			seq_pad(m, ' ');
+-			seq_print_vma_name(m, vma);
+-		}
++		if (vma_get_anon_name(vma) && !hide_for_app) {
++			seq_pad(m, ' ');
++			seq_print_vma_name(m, vma);
++		}
+ 	}
+ 
+ done:
+ 	if (name) {
++		if (hide_for_app && !strcmp(name, "[vdso]"))
++			name = "/apex/com.android.runtime/bin/linker64";
++		if (hide_for_app && !strcmp(name, "[anon_shmem]"))
++			name = "/dev/ashmem";
++
+ 		seq_pad(m, ' ');
+ 		seq_puts(m, name);
++	} else if (hide_for_app && !file && (flags & VM_EXEC)) {
++		/* Avoid blank executable anonymous lines that trigger naive scanners. */
++		seq_pad(m, ' ');
++		seq_puts(m, "/dev/ashmem");
+ 	}
+ 	seq_putc(m, '\n');
+ }
