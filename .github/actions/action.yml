@@ -752,7 +752,7 @@ runs:
         }
         
         retry_clone "https://github.com/TheWildJames/AnyKernel3.git" "$ANYKERNEL_BRANCH"
-        retry_clone "https://github.com/TheWildJames/kernel_patches.git"
+        retry_clone "https://github.com/TheWildJames/kernel_patches.git" "main" 0
         
         if [ "${{ env.OP_SUSFS }}" = true ]; then
           retry_clone "https://gitlab.com/simonpunk/susfs4ksu.git" "master" 0
@@ -922,6 +922,17 @@ runs:
           echo "NEED_HOOKS=false" >> $GITHUB_ENV
         fi
 
+        LEGACY_R1_SUSFS_FLOW=false
+        if [ "${{ inputs.ksu_type }}" = "KSUN" ] \
+          && [ "${KSUVER:-}" = "33095" ] \
+          && [ "$susfs_version" = "v2.1.0" ] \
+          && [ "${SUSFS_COMMIT_SHA:-}" = "6b92a79fa6476f36aae81c6ec284a5cd4391d0d9" ]; then
+          LEGACY_R1_SUSFS_FLOW=true
+          R1_KERNEL_PATCHES_SHA="57ae5149c918e855c5b13318fa4fd9e107ae5346"
+          echo "Using historical kernel_patches snapshot for r1 compatibility: $R1_KERNEL_PATCHES_SHA"
+          git -C "$KERNEL_PATCHES_FOLDER" checkout "$R1_KERNEL_PATCHES_SHA"
+        fi
+
         validate_main_susfs_patch() {
           local target_root="$1"
           shift
@@ -945,6 +956,14 @@ runs:
           shift
           local patch_file="$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
           local apply_output=""
+
+          if [ "$LEGACY_R1_SUSFS_FLOW" = true ]; then
+            echo "Applying SUSFS main patch in legacy r1 compatibility mode"
+            if ! apply_output=$(cd "$target_root" && patch "$@" < "$patch_file" 2>&1); then
+              echo "$apply_output"
+            fi
+            return 0
+          fi
 
           validate_main_susfs_patch "$target_root" "$@"
           if ! apply_output=$(cd "$target_root" && patch "$@" < "$patch_file" 2>&1); then
