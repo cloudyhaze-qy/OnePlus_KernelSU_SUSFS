@@ -10,13 +10,10 @@ This keeps root/system behavior unchanged.
 
 --- a/fs/proc/task_mmu.c
 +++ b/fs/proc/task_mmu.c
-@@ -20,6 +20,7 @@
- #include <linux/shmem_fs.h>
- #include <linux/uaccess.h>
- #include <linux/pkeys.h>
-+#include <linux/cred.h>
+@@ -26,3 +26,4 @@
  
  #include <asm/elf.h>
++#include <linux/cred.h>
  #include <asm/tlb.h>
 @@ -318,6 +319,13 @@ show_vma_header_prefix(struct seq_file *m,
  	seq_putc(m, ' ');
@@ -32,10 +29,11 @@ This keeps root/system behavior unchanged.
  static void
  show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  {
-@@ -330,6 +338,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
- 	unsigned long start, end;
- 	dev_t dev = 0;
+@@ -340,7 +342,8 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  	const char *name = NULL;
+ #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+ 	char *spoofed_redirected_name = NULL;
+ #endif // #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 +	bool hide_for_app = susfs_maps_is_app_uid();
  
  	if (file) {
