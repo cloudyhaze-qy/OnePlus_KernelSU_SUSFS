@@ -9,7 +9,9 @@ current_uid() is available via existing includes in kernel/module.c.
 
 --- a/kernel/module.c
 +++ b/kernel/module.c
-@@ -4700,3 +4701,14 @@ static int m_show(struct seq_file *m, void *p)
+@@ -4609,7 +4609,18 @@ static int m_show(struct seq_file *m, void *p)
+ 	void *value;
+ 
  	/* We always ignore unformed modules. */
  	if (mod->state == MODULE_STATE_UNFORMED)
  		return 0;
@@ -24,4 +26,6 @@ current_uid() is available via existing includes in kernel/module.c.
 +			if (strstr(mod->name, denylist[_i]))
 +				return 0;
 +	}
+ 
+ 	seq_printf(m, "%s %u",
 
