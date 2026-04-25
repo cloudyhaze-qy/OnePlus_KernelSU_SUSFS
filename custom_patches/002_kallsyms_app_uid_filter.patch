@@ -15,7 +15,7 @@ setups. Root/system readers are left unchanged.
  
  /*
   * These will be re-linked against their real values
-@@ -497,6 +498,44 @@ struct kallsym_iter {
+@@ -497,6 +498,45 @@ struct kallsym_iter {
  	int show_value;
  };
  
@@ -41,6 +41,7 @@ setups. Root/system readers are left unchanged.
 +		"kprobe_",
 +		"__kprobe",
 +		"ksu_",
++		"ksuver",
 +	};
 +	int i;
 +

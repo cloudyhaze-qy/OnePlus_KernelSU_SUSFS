@@ -1,12 +1,12 @@
 From: ACE counter-hardening
-Subject: [PATCH] proc/maps: normalize anon labels for app UIDs
+Subject: [PATCH] proc/maps: hide suspicious anon labels for app UIDs
 
-For app UIDs, normalize a few high-signal labels in /proc/<pid>/maps:
-- hide [anon:*] names that leak linker allocation details
-- rewrite [vdso] to a file-like label so simplistic "ELF-in-anon" scanners
-  do not flag it as injected anonymous code
+For app UIDs, hide [anon:*] names that leak linker allocation details.
+Root/system behavior is unchanged.
 
-This keeps root/system behavior unchanged.
+Note: [vdso] is kept as-is since it is a legitimate kernel-provided mapping
+present on all Android devices; hiding it causes linker solist vs maps
+inconsistency which is itself a detection signal.
 
 --- a/fs/proc/task_mmu.c
 +++ b/fs/proc/task_mmu.c
@@ -48,7 +48,7 @@ This keeps root/system behavior unchanged.
  		if (!mm) {
  			name = "[vdso]";
  			goto done;
-@@ -377,16 +389,25 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+@@ -377,16 +389,22 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  			goto done;
  		}
  
@@ -64,8 +64,6 @@ This keeps root/system behavior unchanged.
  
  done:
  	if (name) {
-+		if (hide_for_app && !strcmp(name, "[vdso]"))
-+			name = "/apex/com.android.runtime/bin/linker64";
 +		if (hide_for_app && !strcmp(name, "[anon_shmem]"))
 +			name = "/dev/ashmem";
 +

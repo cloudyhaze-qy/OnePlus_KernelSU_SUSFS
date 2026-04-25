@@ -1,0 +1,37 @@
+From: ACE counter-hardening
+Subject: [PATCH] module: hide KernelSU module from /proc/modules for app UIDs
+
+For /proc/modules readers running as app UIDs (uid >= 10000), skip
+module entries whose names are on the deny-list (kernelsu, susfs).
+Root/system readers are left unchanged.
+
+--- a/kernel/module.c
++++ b/kernel/module.c
+@@ -18,6 +18,7 @@
+ #include <linux/mm.h>
+ #include <linux/vmalloc.h>
+ #include <linux/elf.h>
++#include <linux/cred.h>
+ #include <linux/seq_file.h>
+ #include <linux/syscalls.h>
+ #include <linux/fcntl.h>
+@@ -4700,6 +4701,18 @@ static int m_show(struct seq_file *m, void *p)
+ 	/* We always ignore unformed modules. */
+ 	if (mod->state == MODULE_STATE_UNFORMED)
+ 		return 0;
++
++	/* Hide KernelSU/SUSFS module names from app UIDs (uid >= 10000). */
++	{
++		static const char * const mod_denylist[] = {
++			"kernelsu", "susfs",
++		};
++		unsigned int uid = from_kuid_munged(&init_user_ns, current_uid());
++		int __i;
++		if (uid >= 10000)
++			for (__i = 0; __i < ARRAY_SIZE(mod_denylist); __i++)
++				if (strstr(mod->name, mod_denylist[__i]))
++					return 0;
++	}
++
+ 	seq_printf(m, "%s %u",
+ 		   mod->name, mod->init_layout.size + mod->core_layout.size);
