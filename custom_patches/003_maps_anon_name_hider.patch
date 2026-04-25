@@ -48,7 +48,7 @@ inconsistency which is itself a detection signal.
  		if (!mm) {
  			name = "[vdso]";
  			goto done;
-@@ -377,16 +389,22 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+@@ -377,16 +389,23 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  			goto done;
  		}
  
