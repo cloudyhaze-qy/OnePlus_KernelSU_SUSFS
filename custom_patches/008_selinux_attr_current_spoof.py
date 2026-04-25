@@ -40,6 +40,7 @@ _SPOOF_BLOCK = '''\
 \tif (length > 0 && p &&
 \t    current_uid().val >= 10000 &&
 \t    strcmp(file->f_path.dentry->d_name.name, "current") == 0 &&
+\t    !strnstr(p, "zygote", (size_t)length) &&
 \t    !strnstr(p, "untrusted_app", (size_t)length)) {{
 \t\tkfree(p);
 \t\tp = kstrdup("u:r:untrusted_app:s0\\n", GFP_KERNEL);
