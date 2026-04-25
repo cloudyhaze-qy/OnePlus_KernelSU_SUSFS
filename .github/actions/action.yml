@@ -1144,20 +1144,28 @@ runs:
         if [ -d "$CUSTOM_PATCHES_DIR" ]; then
           echo "Scanning $CUSTOM_PATCHES_DIR for custom patches..."
           # Use a sorted list so ordering is deterministic (001_, 002_, ...).
+          # Supports .patch files (applied with GNU patch) and .py scripts (run with python3).
           while IFS= read -r -d '' cp_file; do
             cp_name="$(basename "$cp_file")"
             echo "Applying custom patch: $cp_name"
-            if ! patch -p1 --forward --dry-run < "$cp_file" >/tmp/cp_dry.log 2>&1; then
-              echo "::error::Custom patch $cp_name does NOT apply against the current SUSFS tree"
-              cat /tmp/cp_dry.log
-              exit 1
-            fi
-            if ! patch -p1 --forward < "$cp_file"; then
-              echo "::error::Custom patch $cp_name failed to apply (post dry-run)"
-              exit 1
+            if [[ "$cp_file" == *.py ]]; then
+              if ! python3 "$cp_file"; then
+                echo "::error::Custom script $cp_name failed"
+                exit 1
+              fi
+            else
+              if ! patch -p1 --forward --dry-run < "$cp_file" >/tmp/cp_dry.log 2>&1; then
+                echo "::error::Custom patch $cp_name does NOT apply against the current SUSFS tree"
+                cat /tmp/cp_dry.log
+                exit 1
+              fi
+              if ! patch -p1 --forward < "$cp_file"; then
+                echo "::error::Custom patch $cp_name failed to apply (post dry-run)"
+                exit 1
+              fi
             fi
             echo "Custom patch $cp_name applied"
-          done < <(find "$CUSTOM_PATCHES_DIR" -maxdepth 1 -type f -name '*.patch' -print0 | sort -z)
+          done < <(find "$CUSTOM_PATCHES_DIR" -maxdepth 1 -type f \( -name '*.patch' -o -name '*.py' \) -print0 | sort -z)
         else
           echo "No $CUSTOM_PATCHES_DIR directory found, skipping custom patches"
         fi
