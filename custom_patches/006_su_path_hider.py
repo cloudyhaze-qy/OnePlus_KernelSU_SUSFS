@@ -35,8 +35,10 @@ _FILTER_BLOCK = '''\
 \t\t\t"/su/bin/su",
 \t\t\t"/data/local/bin/su",
 \t\t\t"/data/local/xbin/su",
-\t\t\t"/data/local/tmp/su",
-\t\t}};
+\t\t\t"/data/local/tmp/su",\t\t\t"/data/adb/ksud",
+\t\t\t"/data/adb/ksu/bin/ksud",
+\t\t\t"/data/adb/ksu",
+\t\t\t"/data/adb/magisk",\t\t}};
 \t\tchar __su_buf[96];
 \t\tlong __su_n = strncpy_from_user(__su_buf, filename,
 \t\t\t\t\t\tsizeof(__su_buf) - 1);
