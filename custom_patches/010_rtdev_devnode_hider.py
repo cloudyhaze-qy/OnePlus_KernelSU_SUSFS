@@ -88,15 +88,17 @@ def patch_stat(path):
     #
     # After SUSFS patches fs/stat.c (susfs_sus_kstat hook):
     #   error = vfs_getattr(&path, stat, request_mask, flags);
-    #   if (!error)
-    #           susfs_sus_kstat(&path, stat);
+    #   #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+    #   	if (!error)
+    #   		susfs_sus_kstat(&path, stat);
+    #   #endif
     #   path_put(&path);
     #
-    # The lazy `(?:\t[^\n]*\n)*?` skips any number of tab-indented lines
-    # (the SUSFS block) so we land correctly on path_put regardless.
+    # Use `(?:[^\n]*\n)*?` (any lines, lazy) so we skip the SUSFS block
+    # regardless of whether its lines start with a tab or not (#ifdef/#endif).
     pattern = re.compile(
         r"(\terror = vfs_getattr\(&path, stat, request_mask, flags\);\n"
-        r"(?:\t[^\n]*\n)*?)"
+        r"(?:[^\n]*\n)*?)"
         r"(\tpath_put\(&path\);)"
     )
 
