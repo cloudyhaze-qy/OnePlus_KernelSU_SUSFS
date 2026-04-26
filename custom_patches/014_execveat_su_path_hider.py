@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
-"""Hide su/ksud binary paths from execveat for app UIDs via fs/exec.c.
+"""Hide su/ksud binary paths from execveat/execve for app UIDs via fs/exec.c.
 
-Dual-hook strategy to handle OEM trees where do_open_execat is inlined:
+Dual-hook strategy:
 
-  1. SYSCALL_DEFINE5(execveat) entry  [PRIMARY]
-     Inserted between the lookup_flags initialisation and the
-     `return do_execveat_common()` call.  At this point `filename`
-     is still the raw const char __user * from userspace.
-     strncpy_from_user() copies it; no struct filename to free on
-     early return.  Fires before do_execveat_common / do_open_execat
-     and is immune to do_open_execat being inlined by the compiler.
+  1. do_execveat_common() entry  [PRIMARY]
+     The single central function called by both execve and execveat.
+     filename is already a struct filename * (kernel pointer), so
+     filename->name is used directly — no strncpy_from_user needed.
+     IS_ERR check guards against error-pointer callers.
+     Returns -ENOENT before any bprm/file setup.
 
-  2. do_open_execat entry  [SECONDARY / belt-and-suspenders]
-     name->name is already kernel-space.  Returns ERR_PTR(-ENOENT).
-     Handles any path that reaches do_open_execat directly.
+  2. do_open_execat() entry  [SECONDARY / belt-and-suspenders]
+     name->name is kernel-space.  Returns ERR_PTR(-ENOENT).
+     Handles trees where the path reaches do_open_execat directly.
 
 Patches:
-  fs/exec.c  (SYSCALL_DEFINE5(execveat)  +  do_open_execat)
+  fs/exec.c  (do_execveat_common  +  do_open_execat)
 """
 
 import re
 import sys
 
-GUARD_EV = "/* Hide su/ksud paths from execveat syscall for app UIDs (uid >= 10000) */"
+GUARD_EV = "/* Hide su/ksud paths from execve/execveat for app UIDs (uid >= 10000) */"
 GUARD_OE = "/* Hide su/ksud exec paths from app UIDs via do_open_execat (uid >= 10000) */"
 
 _PATH_LIST = (
@@ -38,26 +37,22 @@ _PATH_LIST = (
 )
 
 # Hook 1 filter block: inserted in SYSCALL_DEFINE5(execveat).
-# filename is const char __user * — use strncpy_from_user.
-# Returns -ENOENT directly from the syscall; no struct filename to free.
+# Hook 1 filter block: inserted at the top of do_execveat_common().
+# filename is struct filename * (kernel pointer) — use filename->name directly.
+# IS_ERR check guards against error-pointer callers.
+# Returns -ENOENT before any bprm/file setup.
 _FILTER_EV = (
     '\t' + GUARD_EV + '\n'
-    '\tif (current_uid().val >= 10000 && filename) {\n'
-    '\t\tstatic const char * const __ev_su_paths[] = {\n'
+    '\tif (current_uid().val >= 10000 && !IS_ERR(filename) && filename->name) {\n'
+    '\t\tstatic const char * const __execve_su_paths[] = {\n'
     + _PATH_LIST +
     '\t\t};\n'
-    '\t\tchar __ev_buf[128];\n'
-    '\t\tlong __ev_n = strncpy_from_user(__ev_buf, filename,\n'
-    '\t\t\t\t\t\tsizeof(__ev_buf) - 1);\n'
-    '\t\tif (__ev_n > 0) {\n'
-    '\t\t\tint __ev_i;\n'
-    "\t\t\t__ev_buf[__ev_n] = '\\0';\n"
-    '\t\t\tfor (__ev_i = 0;\n'
-    '\t\t\t     __ev_i < ARRAY_SIZE(__ev_su_paths);\n'
-    '\t\t\t     __ev_i++) {\n'
-    '\t\t\t\tif (!strcmp(__ev_buf, __ev_su_paths[__ev_i]))\n'
-    '\t\t\t\t\treturn -ENOENT;\n'
-    '\t\t\t}\n'
+    '\t\tint __execve_i;\n'
+    '\t\tfor (__execve_i = 0;\n'
+    '\t\t     __execve_i < ARRAY_SIZE(__execve_su_paths);\n'
+    '\t\t     __execve_i++) {\n'
+    '\t\t\tif (!strcmp(filename->name, __execve_su_paths[__execve_i]))\n'
+    '\t\t\t\treturn -ENOENT;\n'
     '\t\t}\n'
     '\t}\n'
 )
@@ -98,91 +93,51 @@ def save(path, content):
         fh.write(content)
 
 
-# ── Hook 1: patch SYSCALL_DEFINE5(execveat) ──────────────────────────────────
+# ── Hook 1: patch do_execveat_common ─────────────────────────────────────────
 
 
-def patch_execveat_syscall(path):
-    """Insert su-path filter at the start of SYSCALL_DEFINE5(execveat).
+def patch_execveat_common(path):
+    """Insert su-path filter at the entry of do_execveat_common().
 
-    Two tree variants are handled:
+    do_execveat_common() is the single central function called by both
+    execve() and execveat() in all Linux 5.10 trees.  By the time we
+    reach it, filename is a valid struct filename * (or ERR_PTR), so
+    filename->name is a kernel-space string — no strncpy_from_user needed.
 
-    Variant A (vanilla 5.10 / some OEM trees):
-        int lookup_flags = (flags & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0;
-        return do_execveat_common(fd, getname_flags(filename, ...),
-        We insert between these two lines.
-
-    Variant B (SUSFS/KSU-modified trees — confirmed by CI diagnostics):
-        SYSCALL_DEFINE5(execveat) begins with a flags-validation guard:
-            if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) != 0)
-                return -EINVAL;
-        followed by:
-            if (flags & AT_EMPTY_PATH)
-        We insert after the -EINVAL early return.
-
-    In both cases filename is still the raw const char __user * so
-    strncpy_from_user is needed; there is nothing to free on early return.
+    We insert immediately after the opening brace of the function body,
+    guarded by IS_ERR() so that error-pointer callers are handled safely.
     """
     content = load(path)
     if GUARD_EV in content:
-        print(f"014: {path} execveat syscall already patched, skipping")
+        print(f"014: {path} do_execveat_common already patched, skipping")
         return
 
-    # ── Variant A: lookup_flags line immediately before do_execveat_common ──
-    pattern_a1 = re.compile(
-        r"(\tint lookup_flags = \(flags & AT_EMPTY_PATH\) \? LOOKUP_EMPTY : 0;\n)"
-        r"(\n\treturn do_execveat_common\(fd,)"
+    # Match the full function signature (may span multiple lines) up to
+    # and including the opening brace, then the newline that follows.
+    # [^{]+ matches across newlines because [^{] is not dot.
+    pattern = re.compile(
+        r"(static int do_execveat_common\b[^{]+\{)\n"
     )
-    m = pattern_a1.search(content)
+    m = pattern.search(content)
     if not m:
-        pattern_a2 = re.compile(
-            r"(\tint lookup_flags = \(flags & AT_EMPTY_PATH\) \? LOOKUP_EMPTY : 0;\n)"
-            r"(\treturn do_execveat_common\(fd,)"
+        hits = [
+            f"  L{i+1}: {l.rstrip()}"
+            for i, l in enumerate(content.splitlines())
+            if "do_execveat_common" in l
+        ]
+        print(
+            f"ERROR: do_execveat_common anchor not found in {path}",
+            file=sys.stderr,
         )
-        m = pattern_a2.search(content)
+        for h in hits[:10]:
+            print(h, file=sys.stderr)
+        sys.exit(1)
 
-    if m:
-        new_content = content[: m.end(1)] + _FILTER_EV + content[m.start(2):]
-        save(path, new_content)
-        print(f"014: {path} SYSCALL_DEFINE5(execveat) patched successfully (variant A)")
-        return
-
-    # ── Variant B: flags validation at the top of the syscall body ──
-    # Insert after "return -EINVAL;" and before the next "if (flags & AT_EMPTY_PATH)"
-    pattern_b1 = re.compile(
-        r"(\tif \(\(flags & ~\(AT_SYMLINK_NOFOLLOW \| AT_EMPTY_PATH\)\) != 0\)\n"
-        r"\t\treturn -EINVAL;\n)"
-        r"(\n\tif \(flags & AT_EMPTY_PATH\))"
-    )
-    m = pattern_b1.search(content)
-    if not m:
-        # Same but no blank line between -EINVAL and AT_EMPTY_PATH check
-        pattern_b2 = re.compile(
-            r"(\tif \(\(flags & ~\(AT_SYMLINK_NOFOLLOW \| AT_EMPTY_PATH\)\) != 0\)\n"
-            r"\t\treturn -EINVAL;\n)"
-            r"(\tif \(flags & AT_EMPTY_PATH\))"
-        )
-        m = pattern_b2.search(content)
-
-    if m:
-        new_content = content[: m.end(1)] + _FILTER_EV + content[m.start(2):]
-        save(path, new_content)
-        print(f"014: {path} SYSCALL_DEFINE5(execveat) patched successfully (variant B)")
-        return
-
-    # ── Both variants failed ──
-    diag = [
-        f"  L{i+1}: {l.rstrip()}"
-        for i, l in enumerate(content.splitlines())
-        if "AT_EMPTY_PATH" in l or "do_execveat_common" in l
-        or "AT_SYMLINK_NOFOLLOW" in l
-    ]
-    print(
-        f"ERROR: SYSCALL_DEFINE5(execveat) anchor not found in {path}",
-        file=sys.stderr,
-    )
-    for l in diag[:20]:
-        print(l, file=sys.stderr)
-    sys.exit(1)
+    # Insert filter right after the opening brace + newline.
+    insert_pos = m.end(0)
+    new_content = content[:insert_pos] + _FILTER_EV + content[insert_pos:]
+    save(path, new_content)
+    print(f"014: {path} do_execveat_common patched successfully")
 
 
 # ── Hook 2: patch do_open_execat ─────────────────────────────────────────────
@@ -233,5 +188,5 @@ def patch_exec_openat(path):
 # ── main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    patch_execveat_syscall("fs/exec.c")   # primary hook
+    patch_execveat_common("fs/exec.c")   # primary hook
     patch_exec_openat("fs/exec.c")        # belt-and-suspenders
