@@ -1,8 +1,8 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Hide su/ksud/magisk directory paths from chdir for app UIDs via fs/namei.c.
 
-chdir(2) resolves the target path through __sys_chdir() which calls
-user_path_at() / user_path_dir(), entirely bypassing do_faccessat,
+chdir(2) resolves the target path through __sys_chdir() or ksys_chdir()
+which calls user_path_at() / user_path_dir(), entirely bypassing do_faccessat,
 vfs_statx, do_readlinkat, and do_open_execat.
 
 None of patches 006/014/015/016/017 intercept this path.
@@ -11,13 +11,12 @@ Probe [26] confirms two leaks (both returning EACCES):
   /data/adb/ksu     - EACCES (directory exists)
   /data/adb/magisk  - EACCES (directory exists)
 
-Fix: intercept __sys_chdir() at its very start, before user_path_dir() is
-called.  The filename parameter is a __user pointer, so strncpy_from_user()
-is used to read it into a kernel buffer.  For matching paths with app
-UID >= 10000, return -ENOENT immediately.
+Fix: intercept at the very start of the chdir implementation function, before
+user_path_dir() is called.  filename is a __user pointer so strncpy_from_user
+is used.  For matching paths with app UID >= 10000, return -ENOENT.
 
 Patches:
-  fs/namei.c  (__sys_chdir)
+  fs/namei.c  (__sys_chdir or ksys_chdir, depending on tree)
 """
 
 import re
@@ -74,80 +73,61 @@ def save(path, content):
         fh.write(content)
 
 
-def patch_namei(path):
-    """Inject su/ksud path filter at the very start of __sys_chdir().
+def _try_patterns(content):
+    """Return the first matching regex match from all known chdir function patterns.
 
-    Strategy: locate the function signature followed by its opening brace,
-    then insert the filter block immediately after '{'.  We do NOT require
-    any specific first statement inside the body so SUSFS or vendor changes
-    to the function body do not break the anchor.
-
-    Patterns tried in order:
-      1. int __sys_chdir(const char __user *filename)\\n{
-      2. int __sys_chdir(<anything, single-line>)\\n{
-      3. int __sys_chdir(<anything, possibly multi-line>)\\n{
-      4. SYSCALL_DEFINE1(chdir, const char __user *, filename)\\n{
-      5. SYSCALL_DEFINE1(chdir, ...) possibly multi-line\\n{
+    Tries in order:
+      1-3. int __sys_chdir(...)  {  (exact / single-line / multi-line args)
+      4-6. int ksys_chdir(...)   {  (older / some OEM 5.10 trees)
+      7-8. SYSCALL_DEFINE1(chdir, ...) { (no wrapper, syscall body directly)
     """
+    patterns = [
+        # __sys_chdir (standard upstream / GKI)
+        re.compile(r"(int __sys_chdir\(const char __user \*filename\)\n\{)\n"),
+        re.compile(r"(int __sys_chdir\([^\n)]+\)\n\{)\n"),
+        re.compile(r"(int __sys_chdir\([^{]+?\n\{)\n", re.DOTALL),
+        # ksys_chdir (older kernel / some OEM trees that did not rename)
+        re.compile(r"(int ksys_chdir\(const char __user \*filename\)\n\{)\n"),
+        re.compile(r"(int ksys_chdir\([^\n)]+\)\n\{)\n"),
+        re.compile(r"(int ksys_chdir\([^{]+?\n\{)\n", re.DOTALL),
+        # SYSCALL_DEFINE1 inlined (no separate wrapper function)
+        re.compile(r"(SYSCALL_DEFINE1\(chdir, const char __user \*, filename\)\n\{)\n"),
+        re.compile(r"(SYSCALL_DEFINE1\(chdir,[^{]+?\n\{)\n", re.DOTALL),
+    ]
+    for p in patterns:
+        m = p.search(content)
+        if m:
+            return m
+    return None
 
+
+def patch_namei(path):
     content = load(path)
 
     if GUARD in content:
         print(f"018: {path} already patched, skipping")
         return
 
-    m = None
-
-    # Pattern 1: exact standard 5.10 GKI/AOSP signature
-    p1 = re.compile(r"(int __sys_chdir\(const char __user \*filename\)\n\{)\n")
-    m = p1.search(content)
-
-    if not m:
-        # Pattern 2: any single-line __sys_chdir signature
-        p2 = re.compile(r"(int __sys_chdir\([^\n)]+\)\n\{)\n")
-        m = p2.search(content)
-
-    if not m:
-        # Pattern 3: multi-line __sys_chdir (brace on its own line after args)
-        p3 = re.compile(r"(int __sys_chdir\([^{]+?\n\{)\n", re.DOTALL)
-        m = p3.search(content)
-
-    if not m:
-        # Pattern 4: SYSCALL_DEFINE1(chdir) single-line
-        p4 = re.compile(
-            r"(SYSCALL_DEFINE1\(chdir, const char __user \*, filename\)\n\{)\n"
-        )
-        m = p4.search(content)
-
-    if not m:
-        # Pattern 5: SYSCALL_DEFINE1(chdir) multi-line
-        p5 = re.compile(r"(SYSCALL_DEFINE1\(chdir,[^{]+?\n\{)\n", re.DOTALL)
-        m = p5.search(content)
+    m = _try_patterns(content)
 
     if not m:
         print(
             f"ERROR: anchor for __sys_chdir not found in {path}\n"
-            "  Tried:\n"
-            "    int __sys_chdir(...)\\n{\n"
-            "    SYSCALL_DEFINE1(chdir, ...)\\n{\n"
-            "  Dumping context for diagnosis:",
+            "  Tried: __sys_chdir / ksys_chdir / SYSCALL_DEFINE1(chdir, ...)\n"
+            "  Lines containing 'chdir' in the file:",
             file=sys.stderr,
         )
-        for kw in ("__sys_chdir", "SYSCALL_DEFINE1(chdir"):
-            idx = content.find(kw)
-            if idx >= 0:
-                print(f"  --- {kw} at offset {idx} ---", file=sys.stderr)
-                print(content[max(0, idx): idx + 400], file=sys.stderr)
+        for i, line in enumerate(content.splitlines(), 1):
+            if "chdir" in line.lower():
+                print(f"  L{i}: {line}", file=sys.stderr)
         sys.exit(1)
 
-    # Insert _FILTER_BLOCK right after '{\n'
-    # m.group(1) is everything up to and including '{'
-    # m.end(1) points to just past '{'
-    # m.end() points to just past the '\n' after '{'
-    insert_pos = m.end()   # after "{\n"
+    # Insert _FILTER_BLOCK right after the opening brace + newline.
+    # m.end() points just past the '\n' that follows '{'.
+    insert_pos = m.end()
     new_content = content[:insert_pos] + _FILTER_BLOCK + content[insert_pos:]
     save(path, new_content)
-    print(f"018: {path} (__sys_chdir) patched successfully")
+    print(f"018: {path} (__sys_chdir/ksys_chdir) patched successfully")
 
 
 if __name__ == "__main__":
