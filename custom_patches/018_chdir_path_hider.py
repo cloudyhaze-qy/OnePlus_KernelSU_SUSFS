@@ -1,20 +1,15 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Hide su/ksud/magisk directory paths from chdir for app UIDs via fs/namei.c.
 
 chdir(2) resolves the target path through __sys_chdir() which calls
 user_path_at() / user_path_dir(), entirely bypassing do_faccessat,
-vfs_statx, do_readlinkat, and do_open_execat:
-
-  sys_chdir
-   └─ __sys_chdir()              ← fs/namei.c
-       └─ user_path_dir()
-           └─ kern_path / path_lookupat
+vfs_statx, do_readlinkat, and do_open_execat.
 
 None of patches 006/014/015/016/017 intercept this path.
 Probe [26] confirms two leaks (both returning EACCES):
 
-  /data/adb/ksu     – EACCES (directory exists)
-  /data/adb/magisk  – EACCES (directory exists)
+  /data/adb/ksu     - EACCES (directory exists)
+  /data/adb/magisk  - EACCES (directory exists)
 
 Fix: intercept __sys_chdir() at its very start, before user_path_dir() is
 called.  The filename parameter is a __user pointer, so strncpy_from_user()
@@ -30,10 +25,7 @@ import sys
 
 GUARD = "/* Hide su/ksud/magisk chdir paths from app UIDs (uid >= 10000) */"
 
-# Injected at the very start of __sys_chdir(), before any path resolution.
-# filename is const char __user * — strncpy_from_user required.
-# Variable declarations at block start for C89 compat.
-_FILTER_BLOCK = '''\
+_FILTER_BLOCK = """\
 \t{GUARD}
 \tif (current_uid().val >= 10000 && filename) {{
 \t\tstatic const char * const __chdir_su_paths[] = {{
@@ -56,7 +48,7 @@ _FILTER_BLOCK = '''\
 \t\t__chdir_n = strncpy_from_user(__chdir_buf, filename,
 \t\t\t\t\t     sizeof(__chdir_buf) - 1);
 \t\tif (__chdir_n > 0) {{
-\t\t\t__chdir_buf[__chdir_n] = \'\\0\';
+\t\t\t__chdir_buf[__chdir_n] = '\\0';
 \t\t\tfor (__chdir_i = 0;
 \t\t\t     __chdir_i < ARRAY_SIZE(__chdir_su_paths);
 \t\t\t     __chdir_i++) {{
@@ -65,9 +57,7 @@ _FILTER_BLOCK = '''\
 \t\t\t}}
 \t\t}}
 \t}}
-'''.format(GUARD=GUARD)
-
-# ── helpers ──────────────────────────────────────────────────────────────────
+""".format(GUARD=GUARD)
 
 
 def load(path):
@@ -84,27 +74,20 @@ def save(path, content):
         fh.write(content)
 
 
-# ── patch: fs/namei.c → __sys_chdir ──────────────────────────────────────────
-
 def patch_namei(path):
     """Inject su/ksud path filter at the very start of __sys_chdir().
 
-    In Linux 5.10+, the function looks like:
+    Strategy: locate the function signature followed by its opening brace,
+    then insert the filter block immediately after '{'.  We do NOT require
+    any specific first statement inside the body so SUSFS or vendor changes
+    to the function body do not break the anchor.
 
-        int __sys_chdir(const char __user *filename)
-        {
-                struct path path;
-                int error;
-                unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_DIRECTORY;
-        retry:
-                error = user_path_at(AT_FDCWD, filename, lookup_flags, &path);
-
-    We insert the filter block right after the opening brace so the check
-    fires before any VFS path resolution begins.
-
-    Fallback: Some 5.10 vendor trees may still have SYSCALL_DEFINE1(chdir, ...)
-    without a separate __sys_chdir wrapper.  The fallback targets the macro
-    body in that case.
+    Patterns tried in order:
+      1. int __sys_chdir(const char __user *filename)\\n{
+      2. int __sys_chdir(<anything, single-line>)\\n{
+      3. int __sys_chdir(<anything, possibly multi-line>)\\n{
+      4. SYSCALL_DEFINE1(chdir, const char __user *, filename)\\n{
+      5. SYSCALL_DEFINE1(chdir, ...) possibly multi-line\\n{
     """
 
     content = load(path)
@@ -113,69 +96,59 @@ def patch_namei(path):
         print(f"018: {path} already patched, skipping")
         return
 
-    # ── Primary anchor: __sys_chdir with const char __user * ─────────────────
-    pattern = re.compile(
-        r"(int __sys_chdir\(const char __user \*filename\)\n"
-        r"\{)\n"
-        r"([ \t]*struct path path;)"
-    )
+    m = None
 
-    m = pattern.search(content)
-    if not m:
-        # ── Fallback 1: __user qualifier on different position ────────────────
-        pattern2 = re.compile(
-            r"(int __sys_chdir\([^)]+\)\n"
-            r"\{)\n"
-            r"([ \t]*struct path path;)"
-        )
-        m = pattern2.search(content)
+    # Pattern 1: exact standard 5.10 GKI/AOSP signature
+    p1 = re.compile(r"(int __sys_chdir\(const char __user \*filename\)\n\{)\n")
+    m = p1.search(content)
 
     if not m:
-        # ── Fallback 2: SYSCALL_DEFINE1 without __sys_chdir wrapper ──────────
-        pattern3 = re.compile(
-            r"(SYSCALL_DEFINE1\(chdir, const char __user \*, filename\)\n"
-            r"\{)\n"
-            r"([ \t]*struct path path;)"
-        )
-        m = pattern3.search(content)
+        # Pattern 2: any single-line __sys_chdir signature
+        p2 = re.compile(r"(int __sys_chdir\([^\n)]+\)\n\{)\n")
+        m = p2.search(content)
 
     if not m:
-        # ── Fallback 3: SYSCALL_DEFINE1 multiline ────────────────────────────
-        pattern4 = re.compile(
-            r"(SYSCALL_DEFINE1\(chdir,[\s\S]*?\)\n"
-            r"\{)\n"
-            r"([ \t]*struct path path;)"
+        # Pattern 3: multi-line __sys_chdir (brace on its own line after args)
+        p3 = re.compile(r"(int __sys_chdir\([^{]+?\n\{)\n", re.DOTALL)
+        m = p3.search(content)
+
+    if not m:
+        # Pattern 4: SYSCALL_DEFINE1(chdir) single-line
+        p4 = re.compile(
+            r"(SYSCALL_DEFINE1\(chdir, const char __user \*, filename\)\n\{)\n"
         )
-        m = pattern4.search(content)
+        m = p4.search(content)
+
+    if not m:
+        # Pattern 5: SYSCALL_DEFINE1(chdir) multi-line
+        p5 = re.compile(r"(SYSCALL_DEFINE1\(chdir,[^{]+?\n\{)\n", re.DOTALL)
+        m = p5.search(content)
 
     if not m:
         print(
             f"ERROR: anchor for __sys_chdir not found in {path}\n"
-            "  Expected one of:\n"
-            "    int __sys_chdir(const char __user *filename)\n"
-            "    {\n"
-            "            struct path path;\n"
-            "  or:\n"
-            "    SYSCALL_DEFINE1(chdir, const char __user *, filename)\n"
-            "    {\n"
-            "            struct path path;",
+            "  Tried:\n"
+            "    int __sys_chdir(...)\\n{\n"
+            "    SYSCALL_DEFINE1(chdir, ...)\\n{\n"
+            "  Dumping context for diagnosis:",
             file=sys.stderr,
         )
+        for kw in ("__sys_chdir", "SYSCALL_DEFINE1(chdir"):
+            idx = content.find(kw)
+            if idx >= 0:
+                print(f"  --- {kw} at offset {idx} ---", file=sys.stderr)
+                print(content[max(0, idx): idx + 400], file=sys.stderr)
         sys.exit(1)
 
-    # Insert _FILTER_BLOCK right after the opening brace + newline
-    new_content = (
-        content[: m.end(1)]
-        + "\n"
-        + _FILTER_BLOCK
-        + content[m.end(1) + 1:]
-    )
-
+    # Insert _FILTER_BLOCK right after '{\n'
+    # m.group(1) is everything up to and including '{'
+    # m.end(1) points to just past '{'
+    # m.end() points to just past the '\n' after '{'
+    insert_pos = m.end()   # after "{\n"
+    new_content = content[:insert_pos] + _FILTER_BLOCK + content[insert_pos:]
     save(path, new_content)
     print(f"018: {path} (__sys_chdir) patched successfully")
 
-
-# ── main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     patch_namei("fs/namei.c")
