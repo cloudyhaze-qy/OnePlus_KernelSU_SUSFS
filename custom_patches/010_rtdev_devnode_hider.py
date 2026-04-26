@@ -79,10 +79,24 @@ def patch_stat(path):
         print(f"010: {path} already patched, skipping")
         return
 
-    # Anchor: unique sequence in vfs_statx — vfs_getattr call immediately
-    # followed by path_put on the same &path variable.
+    # Anchor: vfs_getattr call followed (possibly with SUSFS lines in between)
+    # by path_put(&path) in vfs_statx.
+    #
+    # In unpatched Linux 5.10:
+    #   error = vfs_getattr(&path, stat, request_mask, flags);
+    #   path_put(&path);
+    #
+    # After SUSFS patches fs/stat.c (susfs_sus_kstat hook):
+    #   error = vfs_getattr(&path, stat, request_mask, flags);
+    #   if (!error)
+    #           susfs_sus_kstat(&path, stat);
+    #   path_put(&path);
+    #
+    # The lazy `(?:\t[^\n]*\n)*?` skips any number of tab-indented lines
+    # (the SUSFS block) so we land correctly on path_put regardless.
     pattern = re.compile(
-        r"(\terror = vfs_getattr\(&path, stat, request_mask, flags\);\n)"
+        r"(\terror = vfs_getattr\(&path, stat, request_mask, flags\);\n"
+        r"(?:\t[^\n]*\n)*?)"
         r"(\tpath_put\(&path\);)"
     )
 
