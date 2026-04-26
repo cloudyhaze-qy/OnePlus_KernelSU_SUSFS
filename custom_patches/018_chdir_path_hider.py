@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
-"""Hide su/ksud/magisk directory paths from chdir for app UIDs via fs/namei.c.
+"""Hide su/ksud/magisk directory paths from chdir for app UIDs.
 
-chdir(2) resolves the target path through __sys_chdir() or ksys_chdir()
-which calls user_path_at() / user_path_dir(), entirely bypassing do_faccessat,
-vfs_statx, do_readlinkat, and do_open_execat.
+chdir(2) calls the kernel chdir implementation before any VFS permission
+check completes, so patches 006/014/015/016/017 do not intercept it.
+Probe [26] confirms two leaks (both EACCES = directory exists):
+  /data/adb/ksu, /data/adb/magisk
 
-None of patches 006/014/015/016/017 intercept this path.
-Probe [26] confirms two leaks (both returning EACCES):
+Fix: inject a path filter at the very start of the chdir implementation
+function (before user_path_dir is called).  filename is __user so we use
+strncpy_from_user.  For matching paths with app UID >= 10000 return -ENOENT.
 
-  /data/adb/ksu     - EACCES (directory exists)
-  /data/adb/magisk  - EACCES (directory exists)
-
-Fix: intercept at the very start of the chdir implementation function, before
-user_path_dir() is called.  filename is a __user pointer so strncpy_from_user
-is used.  For matching paths with app UID >= 10000, return -ENOENT.
-
-Patches:
-  fs/namei.c  (__sys_chdir or ksys_chdir, depending on tree)
+Candidate files searched (in order):
+  fs/namei.c      -- upstream / GKI standard location
+  kernel/sys.c    -- some older / vendor trees put it here
+  fs/open.c       -- rare, but occasionally seen in OEM trees
 """
 
+import os
 import re
 import sys
 
@@ -74,23 +72,23 @@ def save(path, content):
 
 
 def _try_patterns(content):
-    """Return the first matching regex match from all known chdir function patterns.
+    """Return the first matching regex match, covering all known chdir variants.
 
-    Tries in order:
-      1-3. int __sys_chdir(...)  {  (exact / single-line / multi-line args)
-      4-6. int ksys_chdir(...)   {  (older / some OEM 5.10 trees)
-      7-8. SYSCALL_DEFINE1(chdir, ...) { (no wrapper, syscall body directly)
+    Patterns (in priority order):
+      1-3.  int __sys_chdir(...)  {   upstream / GKI
+      4-6.  int ksys_chdir(...)   {   older / some OEM 5.10
+      7-8.  SYSCALL_DEFINE1(chdir,...) {   no wrapper function
     """
     patterns = [
         # __sys_chdir (standard upstream / GKI)
         re.compile(r"(int __sys_chdir\(const char __user \*filename\)\n\{)\n"),
         re.compile(r"(int __sys_chdir\([^\n)]+\)\n\{)\n"),
         re.compile(r"(int __sys_chdir\([^{]+?\n\{)\n", re.DOTALL),
-        # ksys_chdir (older kernel / some OEM trees that did not rename)
+        # ksys_chdir (older kernel / OEM)
         re.compile(r"(int ksys_chdir\(const char __user \*filename\)\n\{)\n"),
         re.compile(r"(int ksys_chdir\([^\n)]+\)\n\{)\n"),
         re.compile(r"(int ksys_chdir\([^{]+?\n\{)\n", re.DOTALL),
-        # SYSCALL_DEFINE1 inlined (no separate wrapper function)
+        # SYSCALL_DEFINE1(chdir) inlined, no wrapper
         re.compile(r"(SYSCALL_DEFINE1\(chdir, const char __user \*, filename\)\n\{)\n"),
         re.compile(r"(SYSCALL_DEFINE1\(chdir,[^{]+?\n\{)\n", re.DOTALL),
     ]
@@ -101,34 +99,62 @@ def _try_patterns(content):
     return None
 
 
-def patch_namei(path):
+def patch_file(path):
+    """Try to patch the chdir implementation in `path`. Returns True on success."""
+    if not os.path.isfile(path):
+        return False
+
     content = load(path)
 
     if GUARD in content:
         print(f"018: {path} already patched, skipping")
-        return
+        return True
 
     m = _try_patterns(content)
-
     if not m:
-        print(
-            f"ERROR: anchor for __sys_chdir not found in {path}\n"
-            "  Tried: __sys_chdir / ksys_chdir / SYSCALL_DEFINE1(chdir, ...)\n"
-            "  Lines containing 'chdir' in the file:",
-            file=sys.stderr,
-        )
-        for i, line in enumerate(content.splitlines(), 1):
-            if "chdir" in line.lower():
-                print(f"  L{i}: {line}", file=sys.stderr)
-        sys.exit(1)
+        return False
 
-    # Insert _FILTER_BLOCK right after the opening brace + newline.
-    # m.end() points just past the '\n' that follows '{'.
     insert_pos = m.end()
     new_content = content[:insert_pos] + _FILTER_BLOCK + content[insert_pos:]
     save(path, new_content)
-    print(f"018: {path} (__sys_chdir/ksys_chdir) patched successfully")
+    print(f"018: {path} (chdir impl) patched successfully")
+    return True
+
+
+def main():
+    # Files to search, in order of likelihood
+    candidates = [
+        "fs/namei.c",
+        "kernel/sys.c",
+        "fs/open.c",
+    ]
+
+    for candidate in candidates:
+        if patch_file(candidate):
+            return
+
+    # All candidates failed — dump diagnostics
+    print(
+        "ERROR: anchor for chdir not found in any candidate file\n"
+        f"  Searched: {candidates}\n"
+        "  Lines containing 'chdir' in each file:",
+        file=sys.stderr,
+    )
+    for candidate in candidates:
+        if not os.path.isfile(candidate):
+            print(f"  {candidate}: FILE NOT FOUND", file=sys.stderr)
+            continue
+        content = load(candidate)
+        hits = [(i + 1, ln) for i, ln in enumerate(content.splitlines())
+                if "chdir" in ln.lower()]
+        if hits:
+            print(f"  --- {candidate} ---", file=sys.stderr)
+            for lineno, ln in hits:
+                print(f"    L{lineno}: {ln}", file=sys.stderr)
+        else:
+            print(f"  {candidate}: no 'chdir' found", file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == "__main__":
-    patch_namei("fs/namei.c")
+    main()
