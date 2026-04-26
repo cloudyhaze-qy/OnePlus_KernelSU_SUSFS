@@ -55,17 +55,21 @@ def patch_dcache(path):
     """Wrap the dir_emit() call inside dcache_readdir() so that char device
     entries with major=451 are skipped for app UIDs (uid >= 10000).
 
-    In Linux 5.10, the relevant section of dcache_readdir's while-loop is:
+    In Linux 5.10 GKI / AOSP (fs/libfs.c), the relevant section is:
 
-        spin_unlock(&dentry->d_lock);
+        spin_unlock(&next->d_lock);
         if (!dir_emit(ctx, next->d_name.name, next->d_name.len,
                       d_inode(next)->i_ino, dt_type(d_inode(next))))
             break;
-        spin_lock(&dentry->d_lock);
-        move_cursor(cursor, p);
+        moved = true;
+        cursor = next;
 
-    We wrap the dir_emit block so hidden entries fall through to the
-    spin_lock + move_cursor, keeping cursor tracking correct.
+    Some vendor trees keep dcache_readdir in fs/dcache.c with a variant
+    using spin_unlock(&dentry->d_lock) instead.
+
+    We wrap the dir_emit block with a hidden-entry guard.  When an entry
+    is hidden the block is skipped (no break), and execution falls through
+    to the cursor-tracking lines (moved/cursor) so position stays correct.
     """
 
     content = load(path)
@@ -74,40 +78,60 @@ def patch_dcache(path):
         print(f"013: {path} already patched, skipping")
         return
 
-    # ── Primary pattern: 2-line dir_emit (most common in 5.10 GKI) ──────────
-    # Capture:
-    #   group(1) = leading whitespace (indent prefix for the loop body)
-    #   group(2) = "spin_unlock(&dentry->d_lock);\n"
-    #   group(3) = the full "if (!dir_emit(...))\n\t\tbreak;" block
-    pattern2 = re.compile(
+    # ── Pattern A: next->d_lock variant, 2-line dir_emit (standard 5.10 GKI) ─
+    patternA2 = re.compile(
+        r"([ \t]+)(spin_unlock\(&next->d_lock\);\n)"
+        r"([ \t]+if \(!dir_emit\(ctx, next->d_name\.name, next->d_name\.len,\n"
+        r"[ \t]+d_inode\(next\)->i_ino, dt_type\(d_inode\(next\)\)\)\)\n"
+        r"[ \t]+break;)"
+    )
+    m = patternA2.search(content)
+    if m:
+        _apply_wrap(content, m, path, "next->d_lock 2-line dir_emit")
+        return
+
+    # ── Pattern B: next->d_lock variant, 1-line dir_emit ─────────────────────
+    patternA1 = re.compile(
+        r"([ \t]+)(spin_unlock\(&next->d_lock\);\n)"
+        r"([ \t]+if \(!dir_emit\(ctx, next->d_name\.name, next->d_name\.len,"
+        r" d_inode\(next\)->i_ino, dt_type\(d_inode\(next\)\)\)\)\n"
+        r"[ \t]+break;)"
+    )
+    m = patternA1.search(content)
+    if m:
+        _apply_wrap(content, m, path, "next->d_lock 1-line dir_emit")
+        return
+
+    # ── Pattern C: dentry->d_lock variant, 2-line dir_emit (some vendor trees) ─
+    patternB2 = re.compile(
         r"([ \t]+)(spin_unlock\(&dentry->d_lock\);\n)"
         r"([ \t]+if \(!dir_emit\(ctx, next->d_name\.name, next->d_name\.len,\n"
         r"[ \t]+d_inode\(next\)->i_ino, dt_type\(d_inode\(next\)\)\)\)\n"
         r"[ \t]+break;)"
     )
-
-    m = pattern2.search(content)
+    m = patternB2.search(content)
     if m:
-        _apply_wrap(content, m, path, "2-line dir_emit")
+        _apply_wrap(content, m, path, "dentry->d_lock 2-line dir_emit")
         return
 
-    # ── Fallback pattern: 1-line dir_emit ────────────────────────────────────
-    pattern1 = re.compile(
+    # ── Pattern D: dentry->d_lock variant, 1-line dir_emit ───────────────────
+    patternB1 = re.compile(
         r"([ \t]+)(spin_unlock\(&dentry->d_lock\);\n)"
         r"([ \t]+if \(!dir_emit\(ctx, next->d_name\.name, next->d_name\.len,"
         r" d_inode\(next\)->i_ino, dt_type\(d_inode\(next\)\)\)\)\n"
         r"[ \t]+break;)"
     )
-
-    m = pattern1.search(content)
+    m = patternB1.search(content)
     if m:
-        _apply_wrap(content, m, path, "1-line dir_emit")
+        _apply_wrap(content, m, path, "dentry->d_lock 1-line dir_emit")
         return
 
     print(
         f"ERROR: anchor for dcache_readdir dir_emit not found in {path}\n"
-        "  Expected pattern around:\n"
-        "    spin_unlock(&dentry->d_lock);\n"
+        "  Expected one of:\n"
+        "    spin_unlock(&next->d_lock);               [standard 5.10 GKI]\n"
+        "    spin_unlock(&dentry->d_lock);             [vendor variant]\n"
+        "  followed by:\n"
         "    if (!dir_emit(ctx, next->d_name.name, next->d_name.len,\n"
         "                  d_inode(next)->i_ino, dt_type(d_inode(next))))\n"
         "        break;",
@@ -143,4 +167,10 @@ def _apply_wrap(content, m, path, variant):
 # ── main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    patch_dcache("fs/dcache.c")
+    # dcache_readdir lives in fs/libfs.c in standard 5.10 GKI/AOSP trees.
+    # Some older vendor trees keep it in fs/dcache.c — try both.
+    import os
+    if os.path.isfile("fs/libfs.c"):
+        patch_dcache("fs/libfs.c")
+    else:
+        patch_dcache("fs/dcache.c")
