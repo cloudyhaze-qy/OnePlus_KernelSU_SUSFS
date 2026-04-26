@@ -102,56 +102,87 @@ def save(path, content):
 
 
 def patch_execveat_syscall(path):
-    """Insert su-path filter before do_execveat_common() in SYSCALL_DEFINE5(execveat).
+    """Insert su-path filter at the start of SYSCALL_DEFINE5(execveat).
 
-    In Linux 5.10 fs/exec.c the inner helper __do_sys_execveat contains:
+    Two tree variants are handled:
 
+    Variant A (vanilla 5.10 / some OEM trees):
         int lookup_flags = (flags & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0;
+        return do_execveat_common(fd, getname_flags(filename, ...),
+        We insert between these two lines.
 
-        return do_execveat_common(fd, getname_flags(filename, lookup_flags, NULL),
-                                  argv, envp, flags);
+    Variant B (SUSFS/KSU-modified trees — confirmed by CI diagnostics):
+        SYSCALL_DEFINE5(execveat) begins with a flags-validation guard:
+            if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) != 0)
+                return -EINVAL;
+        followed by:
+            if (flags & AT_EMPTY_PATH)
+        We insert after the -EINVAL early return.
 
-    We insert our block between these two statements.  filename is still the
-    raw const char __user * at this point (getname_flags has not been called),
-    so strncpy_from_user is needed and there is nothing to free on early return.
+    In both cases filename is still the raw const char __user * so
+    strncpy_from_user is needed; there is nothing to free on early return.
     """
     content = load(path)
     if GUARD_EV in content:
         print(f"014: {path} execveat syscall already patched, skipping")
         return
 
-    # Primary: blank line between lookup_flags and return statement
-    pattern = re.compile(
+    # ── Variant A: lookup_flags line immediately before do_execveat_common ──
+    pattern_a1 = re.compile(
         r"(\tint lookup_flags = \(flags & AT_EMPTY_PATH\) \? LOOKUP_EMPTY : 0;\n)"
         r"(\n\treturn do_execveat_common\(fd,)"
     )
-    m = pattern.search(content)
+    m = pattern_a1.search(content)
     if not m:
-        # Fallback: no blank line between the two statements
-        pattern2 = re.compile(
+        pattern_a2 = re.compile(
             r"(\tint lookup_flags = \(flags & AT_EMPTY_PATH\) \? LOOKUP_EMPTY : 0;\n)"
             r"(\treturn do_execveat_common\(fd,)"
         )
-        m = pattern2.search(content)
+        m = pattern_a2.search(content)
 
+    if m:
+        new_content = content[: m.end(1)] + _FILTER_EV + content[m.start(2):]
+        save(path, new_content)
+        print(f"014: {path} SYSCALL_DEFINE5(execveat) patched successfully (variant A)")
+        return
+
+    # ── Variant B: flags validation at the top of the syscall body ──
+    # Insert after "return -EINVAL;" and before the next "if (flags & AT_EMPTY_PATH)"
+    pattern_b1 = re.compile(
+        r"(\tif \(\(flags & ~\(AT_SYMLINK_NOFOLLOW \| AT_EMPTY_PATH\)\) != 0\)\n"
+        r"\t\treturn -EINVAL;\n)"
+        r"(\n\tif \(flags & AT_EMPTY_PATH\))"
+    )
+    m = pattern_b1.search(content)
     if not m:
-        diag = [
-            f"  L{i+1}: {l.rstrip()}"
-            for i, l in enumerate(content.splitlines())
-            if "AT_EMPTY_PATH" in l or "do_execveat_common" in l
-        ]
-        print(
-            f"ERROR: SYSCALL_DEFINE5(execveat) anchor not found in {path}",
-            file=sys.stderr,
+        # Same but no blank line between -EINVAL and AT_EMPTY_PATH check
+        pattern_b2 = re.compile(
+            r"(\tif \(\(flags & ~\(AT_SYMLINK_NOFOLLOW \| AT_EMPTY_PATH\)\) != 0\)\n"
+            r"\t\treturn -EINVAL;\n)"
+            r"(\tif \(flags & AT_EMPTY_PATH\))"
         )
-        for l in diag[:20]:
-            print(l, file=sys.stderr)
-        sys.exit(1)
+        m = pattern_b2.search(content)
 
-    # Insert filter between group 1 (lookup_flags line) and group 2 (return ...)
-    new_content = content[: m.end(1)] + _FILTER_EV + content[m.start(2):]
-    save(path, new_content)
-    print(f"014: {path} SYSCALL_DEFINE5(execveat) patched successfully")
+    if m:
+        new_content = content[: m.end(1)] + _FILTER_EV + content[m.start(2):]
+        save(path, new_content)
+        print(f"014: {path} SYSCALL_DEFINE5(execveat) patched successfully (variant B)")
+        return
+
+    # ── Both variants failed ──
+    diag = [
+        f"  L{i+1}: {l.rstrip()}"
+        for i, l in enumerate(content.splitlines())
+        if "AT_EMPTY_PATH" in l or "do_execveat_common" in l
+        or "AT_SYMLINK_NOFOLLOW" in l
+    ]
+    print(
+        f"ERROR: SYSCALL_DEFINE5(execveat) anchor not found in {path}",
+        file=sys.stderr,
+    )
+    for l in diag[:20]:
+        print(l, file=sys.stderr)
+    sys.exit(1)
 
 
 # ── Hook 2: patch do_open_execat ─────────────────────────────────────────────
