@@ -1192,7 +1192,29 @@ runs:
         CONFIG_KSU_SUSFS_SUS_MAP=y
         CONFIG_KSU_SUSFS_SUS_SU=n
         EOF
-        
+
+        echo "Add cloudydev driver"
+        if [ -d "$GITHUB_WORKSPACE/cluudy" ]; then
+          CLOUDYDEV_DIR="$COMMON_KERNEL_FOLDER/drivers/cloudydev"
+          mkdir -p "$CLOUDYDEV_DIR"
+          cp -f "$GITHUB_WORKSPACE/cluudy/"* "$CLOUDYDEV_DIR/"
+          # Add to drivers/Makefile
+          DRIVER_MAKEFILE="$COMMON_KERNEL_FOLDER/drivers/Makefile"
+          if ! grep -q 'drivers/cloudydev/Makefile' "$DRIVER_MAKEFILE" 2>/dev/null; then
+            echo 'obj-y += cloudydev/' >> "$DRIVER_MAKEFILE"
+          fi
+          # Add Kconfig source
+          DRIVERS_KCONFIG="$COMMON_KERNEL_FOLDER/drivers/Kconfig"
+          if ! grep -q 'drivers/cloudydev/Kconfig' "$DRIVERS_KCONFIG" 2>/dev/null; then
+            echo 'source "drivers/cloudydev/Kconfig"' >> "$DRIVERS_KCONFIG"
+          fi
+          # Enable CONFIG
+          echo 'CONFIG_CLOUDYDEV=y' >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+          echo "cloudydev driver added"
+        else
+          echo "No cluudy directory found, skipping cloudydev"
+        fi
+
         echo "::endgroup::"
 
     - name: Add BBG
