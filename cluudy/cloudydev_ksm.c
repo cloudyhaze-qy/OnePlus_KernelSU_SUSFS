@@ -45,6 +45,10 @@
 #define DRIVER_NAME   "cloudy_chrdev"
 #define FIXED_MAJOR  768
 
+/* 安全限制 */
+#define MAX_COPY_SIZE     (1UL << 20)  /* 单次最多 1MB */
+#define MAX_LOOP_ITERS   256           /* 循环上限防卡死 */
+
 /* ioctl 命令 */
 #define CLOUDYDEV_DEFAULT       0x800
 #define CLOUDYDEV_READ_MEM      0x801
@@ -184,8 +188,8 @@ static int write_phys_addr(uint64_t phys_addr, void *buffer, size_t size)
  * ============================================================================
  */
 
-/* 读进程虚拟内存 */
-static int read_proc_mem(pid_t pid, uint64_t addr, void *buffer, size_t size)
+/* 读进程虚拟内存 (带锁保护 + 超时) */
+static int read_proc_mem(pid_t pid, uint64_t addr, void __user *uaddr, uint32_t size)
 {
     struct task_struct *task;
     struct mm_struct *mm;
@@ -193,6 +197,11 @@ static int read_proc_mem(pid_t pid, uint64_t addr, void *buffer, size_t size)
     void *kaddr;
     size_t chunk;
     int ret = 0;
+    int iter_count = 0;
+
+    /* 大小校验 */
+    if (!size || size > MAX_COPY_SIZE)
+        return -EINVAL;
 
     task = get_task_by_pid(pid);
     if (!task)
@@ -204,8 +213,26 @@ static int read_proc_mem(pid_t pid, uint64_t addr, void *buffer, size_t size)
         return -EPERM;
     }
 
-    while (size > 0) {
+    /* 锁定 mm 以防止 munmap 竞争 */
+    if (!down_read_trylock(&mm->mmap_lock)) {
+        mmput(mm);
+        put_task_struct(task);
+        return -EBUSY;  /* 锁被占用则稍后重试 */
+    }
+
+    /* 检查目标进程是否已Exit */
+    if (task->mm != mm) {
+        up_read(&mm->mmap_lock);
+        mmput(mm);
+        put_task_struct(task);
+        return -ESRCH;
+    }
+
+    while (size > 0 && iter_count < MAX_LOOP_ITERS) {
+        iter_count++;
         chunk = size_in_page(addr, size);
+
+        /* 页表遍历可能失败：VMA 不存在或未映射 */
         phys_addr = translate_va_to_pa(mm, addr);
         if (!phys_addr) {
             ret = -EFAULT;
@@ -217,27 +244,39 @@ static int read_proc_mem(pid_t pid, uint64_t addr, void *buffer, size_t size)
             ret = -ENOMEM;
             break;
         }
-        memcpy(buffer, kaddr, chunk);
-        iounmap(kaddr);
 
-        buffer = (char *)buffer + chunk;
+        /* 使用 access_ok + copy_to_user 更安全，而不是直接解引用用户指针 */
+        if (!access_ok(uaddr, chunk) || copy_to_user(uaddr, kaddr, chunk)) {
+            iounmap(kaddr);
+            ret = -EFAULT;
+            break;
+        }
+
+        iounmap(kaddr);
+        uaddr = (char __user *)uaddr + chunk;
         addr += chunk;
         size -= chunk;
     }
 
+    up_read(&mm->mmap_lock);
     mmput(mm);
     put_task_struct(task);
     return ret;
 }
 
-/* 写进程虚拟内存 */
-static int write_proc_mem(pid_t pid, uint64_t addr, void *buffer, size_t size)
+/* 写进程虚拟内存 (带锁保护 + 超时) */
+static int write_proc_mem(pid_t pid, uint64_t addr, void __user *uaddr, uint32_t size)
 {
     struct task_struct *task;
     struct mm_struct *mm;
     uint64_t phys_addr;
     size_t chunk;
     int ret = 0;
+    int iter_count = 0;
+
+    /* 大小校验 */
+    if (!size || size > MAX_COPY_SIZE)
+        return -EINVAL;
 
     task = get_task_by_pid(pid);
     if (!task)
@@ -249,23 +288,55 @@ static int write_proc_mem(pid_t pid, uint64_t addr, void *buffer, size_t size)
         return -EPERM;
     }
 
-    while (size > 0) {
+    /* 锁定 mm */
+    if (!down_read_trylock(&mm->mmap_lock)) {
+        mmput(mm);
+        put_task_struct(task);
+        return -EBUSY;
+    }
+
+    /* 检查目标进程是否已Exit */
+    if (task->mm != mm) {
+        up_read(&mm->mmap_lock);
+        mmput(mm);
+        put_task_struct(task);
+        return -ESRCH;
+    }
+
+    while (size > 0 && iter_count < MAX_LOOP_ITERS) {
+        iter_count++;
         chunk = size_in_page(addr, size);
+
         phys_addr = translate_va_to_pa(mm, addr);
         if (!phys_addr) {
             ret = -EFAULT;
             break;
         }
 
-        ret = write_phys_addr(phys_addr, buffer, chunk);
-        if (ret < 0)
-            break;
+        /* 先从用户空间拷贝数据到临时缓冲区 */
+        {
+            void *kbuf = kmalloc(chunk, GFP_KERNEL);
+            if (!kbuf) {
+                ret = -ENOMEM;
+                break;
+            }
+            if (!access_ok(uaddr, chunk) || copy_from_user(kbuf, uaddr, chunk)) {
+                kfree(kbuf);
+                ret = -EFAULT;
+                break;
+            }
+            ret = write_phys_addr(phys_addr, kbuf, chunk);
+            kfree(kbuf);
+            if (ret < 0)
+                break;
+        }
 
-        buffer = (char *)buffer + chunk;
+        uaddr = (char __user *)uaddr + chunk;
         addr += chunk;
         size -= chunk;
     }
 
+    up_read(&mm->mmap_lock);
     mmput(mm);
     put_task_struct(task);
     return ret;
@@ -405,7 +476,10 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
         if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)))
             return -EFAULT;
 
-        if (!cm.buffer || cm.size == 0)
+        /* 参数校验 */
+        if (cm.pid <= 0 || !cm.addr || cm.size == 0 || cm.size > MAX_COPY_SIZE)
+            return -EINVAL;
+        if (!cm.buffer)
             return -EINVAL;
 
         ret = read_proc_mem(cm.pid, cm.addr, cm.buffer, cm.size);
@@ -417,7 +491,9 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
         if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)))
             return -EFAULT;
 
-        if (!cm.buffer || cm.size == 0)
+        if (cm.pid <= 0 || !cm.addr || cm.size == 0 || cm.size > MAX_COPY_SIZE)
+            return -EINVAL;
+        if (!cm.buffer)
             return -EINVAL;
 
         ret = write_proc_mem(cm.pid, cm.addr, cm.buffer, cm.size);
@@ -430,13 +506,15 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
             return -EFAULT;
 
         mq.name[sizeof(mq.name) - 1] = '\0';
+        if (mq.name[0] == '\0')
+            return -EINVAL;
         {
             pid_t pid_out = 0;
             ret = get_pid_by_name(mq.name, &pid_out);
+            if (ret < 0)
+                return ret;
             mq.base = (uint64_t)pid_out;
         }
-        if (ret < 0)
-            return ret;
 
         if (copy_to_user((void __user *)arg, &mq, sizeof(mq)))
             return -EFAULT;
@@ -446,7 +524,11 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
         if (copy_from_user(&mq, (void __user *)arg, sizeof(mq)))
             return -EFAULT;
 
+
         mq.name[sizeof(mq.name) - 1] = '\0';
+        if (mq.pid <= 0 || mq.name[0] == '\0')
+            return -EINVAL;
+
         ret = get_mod_base_by_pid(mq.pid, mq.name, &mq.base);
         if (ret < 0)
             return ret;
@@ -459,10 +541,16 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
         if (copy_from_user(&mq, (void __user *)arg, sizeof(mq)))
             return -EFAULT;
 
+
         mq.name[sizeof(mq.name) - 1] = '\0';
+        if (mq.pid <= 0 || mq.name[0] == '\0')
+            return -EINVAL;
+
+
         ret = get_mod_base_bss_by_pid(mq.pid, mq.name, &mq.base);
         if (ret < 0)
             return ret;
+
 
         if (copy_to_user((void __user *)arg, &mq, sizeof(mq)))
             return -EFAULT;
