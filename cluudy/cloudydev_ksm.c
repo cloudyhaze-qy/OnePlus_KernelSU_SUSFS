@@ -17,7 +17,7 @@
  *   - 不支持 rmmod (无法卸载 built-in 模块)
  *   - 不自动创建设备节点，需手动 mknod
  *   - 不导出任何符号到 /proc/kallsyms
- *   - 不在 /sys/* 创建任何条目
+ *   - 不在 sys 目录创建任何条目
  *   - 主设备号固定为 768
  *
  * 兼容: Android 5.10+ GKI / 非 GKI 内核
@@ -53,8 +53,7 @@
 #define CLOUDYDEV_GET_MODULE  0x804
 #define CLOUDYDEV_GET_MODULE_BSS 0x805
 
-MODULE_INFO(name, DRIVER_NAME);
-MODULE_INFO(license, "GPL");
+MODULE_LICENSE("GPL");
 MODULE_AUTHOR("HonorKings");
 MODULE_DESCRIPTION("Cloudy Dev KPM - 内核内存读写驱动");
 MODULE_VERSION("1.0.3");
@@ -110,7 +109,7 @@ static struct task_struct *get_task_by_pid(pid_t pid)
     return task;
 }
 
-static size_t size_in_page(uint64_t addr, size_t sz)
+static inline size_t size_in_page(uint64_t addr, size_t sz)
 {
     return min(sz, (size_t)(PAGE_SIZE - (addr & ~PAGE_MASK)));
 }
@@ -346,10 +345,9 @@ static int get_mod_base_bss_by_pid(pid_t pid, const char *mod_name, uint64_t *ou
             continue;
 
         if (strstr(path, mod_name)) {
-            /* 继续查找下一个 anon 段 */
+            /* 继续查找下一个 anon 段（vm_file == NULL 表示匿名映射） */
             struct vm_area_struct *next = vma->vm_next;
-            if (next && (next->vm_flags & VM_READ) &&
-                (next->vm_flags & VM_ANONYMOUS)) {
+            if (next && (next->vm_flags & VM_READ) && !next->vm_file) {
                 *out_base = (uint64_t)next->vm_start;
                 ret = 0;
                 break;
@@ -542,10 +540,9 @@ err_cdev_add:
     return ret;
 }
 
-/* 不卸载驱动 (常驻) */
+/* built-in 驱动不卸载，module_exit 永不执行 */
 static void __exit cloudydev_exit(void)
 {
-    pr_info("[cloudydev] exit: not unloading (staying resident)\n");
 }
 
 module_init(cloudydev_init);
