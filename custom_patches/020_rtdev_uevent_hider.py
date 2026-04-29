@@ -122,17 +122,17 @@ def patch_kobject_uevent(path):
 
 
 if __name__ == "__main__":
-    # Accept 1 or 2 arguments:
-    #   python script.py                    -> use default lib/kobject.c
-    #   python script.py lib/kobject.c    -> use provided path
-    if len(sys.argv) > 2:
-        target = sys.argv[1]  # Custom first arg after script name
-        print(f"020: using provided path: {target}")
-        patch_kobject_uevent(target)
-    elif len(sys.argv) == 2:
-        # Try as direct path
-        target = sys.argv[1]
-        patch_kobject_uevent(target)
+    import os
+
+    path = None
+    
+    if len(sys.argv) > 1:
+        # Use provided path if it exists
+        if os.path.exists(sys.argv[1]):
+            path = sys.argv[1]
+        else:
+            print(f"020: file not found: {sys.argv[1]}, skipping")
+            sys.exit(0)
     else:
         # Default: check common locations
         default_paths = [
@@ -140,13 +140,13 @@ if __name__ == "__main__":
             "common/lib/kobject.c",
             "kernel_platform/common/lib/kobject.c",
         ]
-        found = False
         for p in default_paths:
             if os.path.exists(p):
-                print(f"020: using default: {p}")
-                patch_kobject_uevent(p)
-                found = True
+                path = p
                 break
-        if not found:
-            print(f"Usage: {sys.argv[0]} [lib/kobject.c]")
-            sys.exit(1)
+        
+        if not path:
+            print(f"020: lib/kobject.c not found, skipping")
+            sys.exit(0)
+
+    patch_kobject_uevent(path)

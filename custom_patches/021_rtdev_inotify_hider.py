@@ -196,8 +196,15 @@ def patch_dnotify(path):
 if __name__ == "__main__":
     import os
     
+    path = None
+    
     if len(sys.argv) > 1:
-        path = sys.argv[1]
+        # Use provided path if it exists
+        if os.path.exists(sys.argv[1]):
+            path = sys.argv[1]
+        else:
+            print(f"021: file not found: {sys.argv[1]}, skipping")
+            sys.exit(0)
     else:
         # Default paths
         default_paths = [
@@ -208,15 +215,15 @@ if __name__ == "__main__":
             "common/fs/notify/fanotify.c",
             "common/fs/dnotify.c",
         ]
-        found = False
         for p in default_paths:
             if os.path.exists(p):
                 path = p
-                found = True
                 break
-        if not found:
-            print(f"Usage: {sys.argv[0]} <inotify.c|fanotify.c|dnotify.c>")
-            sys.exit(1)
+        
+        if not path:
+            # No files found - skip silently
+            print(f"021: no inotify/fanotify/dnotify files found, skipping")
+            sys.exit(0)
 
     # Auto-detect which file to patch
     if "inotify" in path:
@@ -226,6 +233,5 @@ if __name__ == "__main__":
     elif "dnotify" in path:
         patch_dnotify(path)
     else:
-        print(f"Unknown file: {path}")
-        print(f"Usage: {sys.argv[0]} <inotify.c|fanotify.c|dnotify.c>")
-        sys.exit(1)
+        print(f"021: unknown file type: {path}, skipping")
+        sys.exit(0)
