@@ -84,7 +84,7 @@ def patch_sysfs_readdir(path):
             r"\t\tbreak;)"
         ),
         # Pattern 2: simplified dir_emit
-        re.compile(r"(\tif \(!dir_emit\(ctx,)")),
+        re.compile(r"(\tif \(!dir_emit\(ctx,)"),
     ]
 
     patched = False
@@ -124,7 +124,7 @@ def patch_sysfs_readdir(path):
         # Add a marker comment so we know it needs manual work
         if GUARD not in content:
             # Insert at sysfs_readdir function start
-            pattern = re.compile(r"(int sysfs_readdir\(struct file \*file, struct dir_context \*ctx\))"
+            pattern = re.compile(r"(int sysfs_readdir\(struct file \*file, struct dir_context \*ctx\))")
             if pattern.search(content):
                 replacement = r"\1\n" + GUARD
                 new_content = pattern.sub(replacement, content)
