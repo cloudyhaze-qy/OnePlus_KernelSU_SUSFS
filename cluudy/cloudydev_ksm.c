@@ -70,7 +70,7 @@ MODULE_VERSION("1.0.3");
 struct cloudys_copy_mem {
     int32_t   pid;
     uint64_t  addr;
-    void     *buffer;
+    void __user *buffer;
     uint32_t  size;
 };
 
