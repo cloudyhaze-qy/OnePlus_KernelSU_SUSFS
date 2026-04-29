@@ -93,37 +93,41 @@ def patch_devinfo(path):
         print(f"019: {path} already patched, skipping")
         return
 
-    # Anchor: the show_chrdev_range(f, i) call inside the
-    # `if (i < CHRDEV_MAJOR_MAX)` branch.
-    #
-    # We match:
-    #   \t\tshow_chrdev_range(f, i);
-    # and insert our guard *before* it.
-    #
-    # The anchor must be unique – show_chrdev_range appears exactly once
-    # in this file in standard 5.10 kernels.
-    pattern = re.compile(
-        r"(\t\tshow_chrdev_range\(f, i\);)"
-    )
+    # Try multiple anchor patterns for different kernel versions
+    anchors = [
+        r"\t\tshow_chrdev_range\(f, i\);",
+        r"\bchrdev_show\(f, i\);",
+        r"\bproc_dev_show\(f, v\);",
+        r"show_chrdev\(",
+        r"\bdev_show\(struct seq_file",
+        r"\ti == 0",  # Last resort: at the i==0 check
+    ]
+    
+    anchor_found = None
+    for anchor in anchors:
+        pattern = re.compile(anchor)
+        if pattern.search(content):
+            anchor_found = anchor
+            break
+    
+    if not anchor_found:
+        print(f"019: ERROR - no anchor found in {path}")
+        print(f"019: Current kernel may differ from standard Linux 5.10.")
+        print(f"019: Please manually add RT Dev filter.")
+        sys.exit(1)
 
+    # Find match for insertion
+    pattern = re.compile(anchor_found)
     m = pattern.search(content)
     if not m:
-        # Fallback: some vendor kernels inline or rename the call.
-        # Try `show_chrdev_range(f, i)` without leading tabs.
-        pattern2 = re.compile(r"(\bshow_chrdev_range\(f, i\);)")
-        m = pattern2.search(content)
-        if not m:
-            print(
-                f"ERROR: anchor 'show_chrdev_range(f, i)' not found in {path}\n"
-                "  Check that this is fs/proc/devices.c for Linux 5.10.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        print(f"019: FAILED to match anchor {anchor_found}")
+        sys.exit(1)
 
-    # Insert the hide block before the matched call.
-    new_content = content[:m.start(1)] + _HIDE_BLOCK + content[m.start(1):]
+    # Insert guard at the matched position
+    insert_pos = m.start()
+    new_content = content[:insert_pos] + _HIDE_BLOCK + content[insert_pos:]
     save(path, new_content)
-    print(f"019: {path} (devinfo_show) patched successfully")
+    print(f"019: {path} patched successfully")
 
 
 if __name__ == "__main__":
