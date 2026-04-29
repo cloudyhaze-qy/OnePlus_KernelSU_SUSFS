@@ -7,6 +7,6 @@
 # Note: CFI_CLANG is disabled in the kernel config (via action.yml) so
 # -flto=thin is present without -fsanitize=cfi (no conflict).
 
-ccflags-y += -fno-lto
+# ccflags-y += -fno-lto
 
 obj-$(CONFIG_CLOUDYDEV) += cloudydev_ksm.o
