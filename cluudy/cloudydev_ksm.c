@@ -468,11 +468,9 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
     struct cloudys_module_query mq;
     int ret = 0;
 
-    switch (cmd) {
-    case CLOUDYDEV_DEFAULT:
+    if (cmd == CLOUDYDEV_DEFAULT) {
         return -EINVAL;
-
-    case CLOUDYDEV_READ_MEM:
+    } else if (cmd == CLOUDYDEV_READ_MEM) {
         if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)))
             return -EFAULT;
 
@@ -485,9 +483,7 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
         ret = read_proc_mem(cm.pid, cm.addr, cm.buffer, cm.size);
         if (ret < 0)
             return ret;
-        break;
-
-    case CLOUDYDEV_WRITE_MEM:
+    } else if (cmd == CLOUDYDEV_WRITE_MEM) {
         if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)))
             return -EFAULT;
 
@@ -499,9 +495,7 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
         ret = write_proc_mem(cm.pid, cm.addr, cm.buffer, cm.size);
         if (ret < 0)
             return ret;
-        break;
-
-    case CLOUDYDEV_GET_PID:
+    } else if (cmd == CLOUDYDEV_GET_PID) {
         if (copy_from_user(&mq, (void __user *)arg, sizeof(mq)))
             return -EFAULT;
 
@@ -518,9 +512,7 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 
         if (copy_to_user((void __user *)arg, &mq, sizeof(mq)))
             return -EFAULT;
-        break;
-
-    case CLOUDYDEV_GET_MODULE:
+    } else if (cmd == CLOUDYDEV_GET_MODULE) {
         if (copy_from_user(&mq, (void __user *)arg, sizeof(mq)))
             return -EFAULT;
 
@@ -535,9 +527,7 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 
         if (copy_to_user((void __user *)arg, &mq, sizeof(mq)))
             return -EFAULT;
-        break;
-
-    case CLOUDYDEV_GET_MODULE_BSS:
+    } else if (cmd == CLOUDYDEV_GET_MODULE_BSS) {
         if (copy_from_user(&mq, (void __user *)arg, sizeof(mq)))
             return -EFAULT;
 
@@ -554,9 +544,7 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 
         if (copy_to_user((void __user *)arg, &mq, sizeof(mq)))
             return -EFAULT;
-        break;
-
-    default:
+    } else {
         return -ENOTTY;
     }
 
