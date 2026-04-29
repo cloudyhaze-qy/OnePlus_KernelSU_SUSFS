@@ -6,6 +6,6 @@
 #       contain __compiletime_assert_321. The driver works correctly with
 #       native kernel functions; LTO cross-module inlining causes link errors.
 
-# ccflags-y += -fno-lto
+ccflags-y += -fno-lto
 
 obj-$(CONFIG_CLOUDYDEV) += cloudydev_ksm.o
