@@ -194,11 +194,29 @@ def patch_dnotify(path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <source_file>")
-        sys.exit(1)
-
-    path = sys.argv[1]
+    import os
+    
+    if len(sys.argv) > 1:
+        path = sys.argv[1]
+    else:
+        # Default paths
+        default_paths = [
+            "fs/notify/inotify.c",
+            "fs/notify/fanotify.c",
+            "fs/dnotify.c",
+            "common/fs/notify/inotify.c",
+            "common/fs/notify/fanotify.c",
+            "common/fs/dnotify.c",
+        ]
+        found = False
+        for p in default_paths:
+            if os.path.exists(p):
+                path = p
+                found = True
+                break
+        if not found:
+            print(f"Usage: {sys.argv[0]} <inotify.c|fanotify.c|dnotify.c>")
+            sys.exit(1)
 
     # Auto-detect which file to patch
     if "inotify" in path:
@@ -209,4 +227,5 @@ if __name__ == "__main__":
         patch_dnotify(path)
     else:
         print(f"Unknown file: {path}")
+        print(f"Usage: {sys.argv[0]} <inotify.c|fanotify.c|dnotify.c>")
         sys.exit(1)

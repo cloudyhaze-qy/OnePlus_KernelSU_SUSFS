@@ -29,6 +29,7 @@ Patches:
 
 import re
 import sys
+import os
 
 GUARD = "/* Hide RT Dev (major=451) uevent broadcast */"
 
@@ -121,8 +122,31 @@ def patch_kobject_uevent(path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <lib/kobject.c>")
-        sys.exit(1)
-
-    patch_kobject_uevent(sys.argv[1])
+    # Accept 1 or 2 arguments:
+    #   python script.py                    -> use default lib/kobject.c
+    #   python script.py lib/kobject.c    -> use provided path
+    if len(sys.argv) > 2:
+        target = sys.argv[1]  # Custom first arg after script name
+        print(f"020: using provided path: {target}")
+        patch_kobject_uevent(target)
+    elif len(sys.argv) == 2:
+        # Try as direct path
+        target = sys.argv[1]
+        patch_kobject_uevent(target)
+    else:
+        # Default: check common locations
+        default_paths = [
+            "lib/kobject.c",
+            "common/lib/kobject.c",
+            "kernel_platform/common/lib/kobject.c",
+        ]
+        found = False
+        for p in default_paths:
+            if os.path.exists(p):
+                print(f"020: using default: {p}")
+                patch_kobject_uevent(p)
+                found = True
+                break
+        if not found:
+            print(f"Usage: {sys.argv[0]} [lib/kobject.c]")
+            sys.exit(1)

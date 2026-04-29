@@ -141,8 +141,24 @@ def patch_sysfs_readdir(path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <fs/sysfs/dir.c>")
-        sys.exit(1)
-
-    patch_sysfs_readdir(sys.argv[1])
+    import os
+    
+    if len(sys.argv) > 1:
+        path = sys.argv[1]
+    else:
+        # Default paths
+        default_paths = [
+            "fs/sysfs/dir.c",
+            "common/fs/sysfs/dir.c",
+        ]
+        found = False
+        for p in default_paths:
+            if os.path.exists(p):
+                path = p
+                found = True
+                break
+        if not found:
+            print(f"Usage: {sys.argv[0]} <fs/sysfs/dir.c>")
+            sys.exit(1)
+    
+    patch_sysfs_readdir(path)
