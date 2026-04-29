@@ -15,7 +15,7 @@
  * 注意 (built-in 模式):
  *   - 驱动在内核启动时自动初始化
  *   - 不支持 rmmod (无法卸载 built-in 模块)
- *   - 不自动创建 /dev 节点，需手动 mknod
+ *   - 不自动创建设备节点，需手动 mknod
  *   - 不导出任何符号到 /proc/kallsyms
  *   - 不在 /sys/* 创建任何条目
  *   - 主设备号固定为 768
@@ -346,10 +346,10 @@ static int get_mod_base_bss_by_pid(pid_t pid, const char *mod_name, uint64_t *ou
             continue;
 
         if (strstr(path, mod_name)) {
-            /* 继续查找下一个 anon:.bss 段 */
+            /* 继续查找下一个 anon 段 */
             struct vm_area_struct *next = vma->vm_next;
             if (next && (next->vm_flags & VM_READ) &&
-                strstr(next->vm_name, "[anon:.bss]")) {
+                (next->vm_flags & VM_ANONYMOUS)) {
                 *out_base = (uint64_t)next->vm_start;
                 ret = 0;
                 break;
