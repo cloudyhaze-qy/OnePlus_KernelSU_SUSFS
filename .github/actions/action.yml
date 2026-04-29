@@ -1210,6 +1210,9 @@ runs:
           fi
           # Enable CONFIG
           echo 'CONFIG_CLOUDYDEV=y' >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+          # CFI requires LTO but CFI+LTO causes __compiletime_assert_321 with cloudydev.
+          # Disable CFI for this build so the kernel uses -flto=thin only (no -fsanitize=cfi).
+          scripts/config --file "$OUT/.config" -d CFI_CLANG
           echo "cloudydev driver added"
         else
           echo "No cluudy directory found, skipping cloudydev"

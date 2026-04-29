@@ -1,14 +1,12 @@
 # Cloudy Dev KPM Makefile for kernel built-in compilation
 # Usage: Place this in drivers/cloudydev/Makefile
 #
-# NOTE: -fno-lto disables ThinLTO for this driver to prevent __compiletime_assert_321
-#       linker errors caused by cross-module inlining. However, -fno-lto conflicts
-#       with -fsanitize=cfi (CFI requires LTO), so we must also disable CFI.
+# -fno-lto: prevents ThinLTO cross-module inlining of kernel __copy_from_user_overflow
+# helpers, which contain __compiletime_assert_321 (a linker-group member that
+# is not available during ThinLTO linking of vmlinux.o).
+# Note: CFI_CLANG is disabled in the kernel config (via action.yml) so
+# -flto=thin is present without -fsanitize=cfi (no conflict).
 
-# Disable LTO
 ccflags-y += -fno-lto
-
-# Disable CFI (requires LTO, conflicts with -fno-lto)
-CFLAGS_cloudydev_ksm.o := -fno-sanitize=cfi
 
 obj-$(CONFIG_CLOUDYDEV) += cloudydev_ksm.o
