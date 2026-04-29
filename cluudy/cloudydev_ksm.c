@@ -430,7 +430,11 @@ static long dispatch_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
             return -EFAULT;
 
         mq.name[sizeof(mq.name) - 1] = '\0';
-        ret = get_pid_by_name(mq.name, (pid_t *)&mq.base);
+        {
+            pid_t pid_out = 0;
+            ret = get_pid_by_name(mq.name, &pid_out);
+            mq.base = (uint64_t)pid_out;
+        }
         if (ret < 0)
             return ret;
 
