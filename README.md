@@ -1,7 +1,23 @@
 # 📱 OnePlusOSS Kernel Tracker
-> **Last Update:** Fri Jul  3 06:54:29 UTC 2026 (UTC)
+> **Last Update:** Fri Jul  3 10:27:13 UTC 2026 (UTC)
 Daily automated report for OnePlus Kernel branches.
 ### 📱 Kernel Status Report
+<details><summary><b>android_kernel_common_oneplus_sm7635</b></summary>
+
+#### Branch: `oneplus/sm7635_b_16.0.0_turbo_6v` 🔄 Updated
+* **Kernel Version:** `6.1.141`
+* **Commit SHA:** `e2601ea`
+* **Message:** Synchronize code for OnePlus PLY110_16.0.7.200(CN01)
+---
+</details>
+<details><summary><b>android_kernel_oneplus_sm7635</b></summary>
+
+#### Branch: `oneplus/sm7635_b_16.0.0_turbo_6v` 🔄 Updated
+* **Kernel Version:** `6.1.141`
+* **Commit SHA:** `6b75f3f`
+* **Message:** Synchronize code for OnePlus PLY110_16.0.7.200(CN01)
+---
+</details>
 <details><summary><b>android_kernel_common_oneplus_sm6375</b></summary>
 
 #### Branch: `oneplus/sm6375_v_15.0.0_nord_ce4_lite_5g` ✅
@@ -1161,22 +1177,6 @@ Daily automated report for OnePlus Kernel branches.
 * **Kernel Version:** `6.12.38`
 * **Commit SHA:** `e6930bd`
 * **Message:** Synchronize code for OnePlus PLR110_16.0.5.702(CN01)
----
-</details>
-<details><summary><b>android_kernel_common_oneplus_sm7635</b></summary>
-
-#### Branch: `oneplus/sm7635_b_16.0.0_turbo_6v` ✅
-* **Kernel Version:** `6.1.118`
-* **Commit SHA:** `158f85f`
-* **Message:** Synchronize code for OnePlus PLY110_16.0.2.406(CN01)
----
-</details>
-<details><summary><b>android_kernel_oneplus_sm7635</b></summary>
-
-#### Branch: `oneplus/sm7635_b_16.0.0_turbo_6v` ✅
-* **Kernel Version:** `6.1.118`
-* **Commit SHA:** `dd2efd0`
-* **Message:** Synchronize code for OnePlus PLY110_16.0.2.406(CN01)
 ---
 </details>
 <details><summary><b>android_kernel_oneplus_sm7550</b></summary>
